@@ -154,10 +154,13 @@ def routine(file_path, num_rows=50, user_input_tests='ALL'):
         num_rows
     )
 
+    if table.empty:
+        return {}
+
     # Detects columns that are ints but written as floats
     res_ints_as_floats = list(detect_ints_as_floats(table))
 
-    # Creating return dictionnary
+    # Creating return dictionary
     return_dict = dict()
     return_dict['encoding'] = encoding
     return_dict['separator'] = sep
