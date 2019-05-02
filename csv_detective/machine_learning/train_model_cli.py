@@ -19,8 +19,8 @@ from functools import partial
 from sklearn.feature_extraction import DictVectorizer
 from tqdm import tqdm
 import logging
-import numpy as np
 from itertools import chain
+import numpy as np
 
 from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.linear_model import LogisticRegression
@@ -29,8 +29,8 @@ from sklearn.metrics import classification_report, confusion_matrix
 from csv_detective.machine_learning.training import train_routine
 
 logger = logging.getLogger()
-logger.addHandler(logging.StreamHandler())
 logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
 
 
 def run_csv_detective(file_path):
@@ -39,7 +39,10 @@ def run_csv_detective(file_path):
         feat_dict = train_routine(file_path)
         return feat_dict
     except Exception as e:
-        logger.info(e)
+        print("Could not read {}".format(file_path))
+        print(e)
+        logger.error(e)
+
 
 
 def get_files(data_path, ext="csv"):
@@ -50,7 +53,6 @@ def get_csv_detective_analysis_single(list_files, begin_from=None, n_datasets=No
     if n_datasets:
         list_files = list_files[:n_datasets]
 
-    print(list_files)
     if begin_from:
         indx_begin = [i for i, path in enumerate(list_files) if begin_from in path]
         if indx_begin:
@@ -86,7 +88,7 @@ def load_annotations_ids(tagged_file_path):
     y_true = df_annotation.human_detected.fillna("O").values
     csv_ids = df_annotation.id.unique()
 
-    return y_true, csv_ids
+    return y_true, csv_ids, df_annotation.groupby("id").count()["columns"].to_dict()
 
 
 def train_model(list_features_dict, y_true):
@@ -109,8 +111,10 @@ def train_model(list_features_dict, y_true):
 
 
 def create_list_files(csv_folder, list_resources_ids):
-    csv_paths = ["{0}/{1}.csv".format(csv_folder, resource_id) for resource_id in list_resources_ids]
+    csv_paths = ["{0}/{1}.csv".format(csv_folder, resource_id) for resource_id in sorted(list_resources_ids)]
     return csv_paths
+
+RESOURCE_ID_COLUMNS = None
 
 if __name__ == '__main__':
     # try_detective(begin_from="DM1_2018_EHPAD")
@@ -119,19 +123,34 @@ if __name__ == '__main__':
     csv_folder_path = parser.p
     output_path = parser.output or "."
     n_cores = int(parser.cores)
-
-    y_true, csv_ids = load_annotations_ids(tagged_file_path)
+    y_true, csv_ids, RESOURCE_ID_COLUMNS = load_annotations_ids(tagged_file_path)
     y_true = y_true[:]
 
     csv_path_list = create_list_files(csv_folder_path, csv_ids)
 
     if n_cores > 1:
-        list_features_dict = get_csv_detective_analysis(csv_path_list, begin_from=None, n_datasets=None, n_jobs=n_cores)
+        list_features_dict = get_csv_detective_analysis(csv_path_list, begin_from=None, n_datasets=10, n_jobs=n_cores)
     else:
-        list_features_dict = get_csv_detective_analysis_single(csv_path_list, begin_from=None, n_datasets=None)
+        list_features_dict = get_csv_detective_analysis_single(csv_path_list, begin_from=None, n_datasets=10)
 
     # assert len(list_features_dict) == len(y_true)
+    not_same_n_columns = {}
+    print(len(RESOURCE_ID_COLUMNS))
+    print(len(list_features_dict))
+    for i, (k, v) in enumerate(RESOURCE_ID_COLUMNS.items()):
+        if len(list_features_dict[i]) > v:
+            not_same_n_columns[k] = (len(list_features_dict[i]), v)
+            list_features_dict[i] = list_features_dict[i][: v]
+    print(not_same_n_columns)
 
-    list_features_dict = chain.from_iterable(list_features_dict)
+    list_features_dict = list(chain.from_iterable(list_features_dict))
+
+    # HORRIBLE HACK! Adding a new siren instance bc there is only one in the dataset
+    id_siren = np.where(y_true == "siren")[0][0]
+    print(id_siren)
+    list_features_dict.append(list_features_dict[id_siren])
+    y_true = y_true.tolist()
+    y_true.append("siren")
+    y_true = np.array(y_true)
 
     train_model(list_features_dict, y_true)

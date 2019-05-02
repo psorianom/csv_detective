@@ -39,6 +39,7 @@ def detect_encoding(the_file):
 
 def parse_table(the_file, encoding, sep, headers_row, num_rows):
     # Takes care of some problems
+    table = None
     for encoding in [encoding, 'ISO-8859-1', 'utf-8']:
         # TODO : modification systematique
         if encoding is None:
@@ -47,39 +48,24 @@ def parse_table(the_file, encoding, sep, headers_row, num_rows):
         if 'ISO-8859' in encoding:
             encoding = 'ISO-8859-1'
 
-        the_file.seek(0)
-        # skip random lines to extract `num_rows` randomly
-        total_lines = sum(1 for line in the_file)
-        if total_lines > num_rows + headers_row:
-            skip = sorted(
-                random.sample(
-                    range(1, total_lines),
-                    total_lines - num_rows
-                )
-            )
-            # also skip headers
-            if headers_row:
-                skip += range(headers_row + 1)
-        else:
-            skip = headers_row
-
         try:
-            the_file.seek(0)
             table = pd.read_csv(
                 the_file,
                 sep=sep,
-                skiprows=skip,
                 dtype='unicode',
                 encoding=encoding
             )
+            num_rows = min(num_rows - 1, len(table))
+            table = table.sample(num_rows)
             break
         except TypeError:
             print('Trying encoding : {encoding}'.format(encoding=encoding))
-    else:
-        print('  >> encoding not found')
-        return None, total_lines
 
-    return table, total_lines
+    if table is None:
+        print('  >> encoding not found')
+        return table, "NA"
+
+    return table, len(table)
 
 
 def detect_extra_columns(file, sep):

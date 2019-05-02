@@ -7,8 +7,7 @@ Here we train a machine learning model to detect the type of column. We need :
 3. Get the
 """
 from collections import Counter
-
-from sklearn.feature_extraction import DictVectorizer
+# from csv_detective.machine_learning.train_model_cli import RESOURCE_ID_COLUMNS
 
 from csv_detective.detection import detect_encoding, detect_separator, detect_headers, detect_heading_columns, \
     detect_trailing_columns, parse_table, detect_ints_as_floats
@@ -45,31 +44,30 @@ def features(column:pd.Series):
     return features
 
 
-
-
 def train_routine(file_path, num_rows=500):
     '''Returns a dict with information about the csv table and possible
     column contents
     '''
 
-    binary_file = open(file_path, mode='rb')
-    encoding = detect_encoding(binary_file)['encoding']
+    with open(file_path, mode='rb') as binary_file:
+        encoding = detect_encoding(binary_file)['encoding']
 
-    str_file = open(file_path, 'r', encoding=encoding)
 
-    sep = detect_separator(str_file)
-    header_row_idx, header = detect_headers(str_file, sep)
-    if header is None:
-        return_dict = {'error': True}
-        return return_dict
-    elif isinstance(header, list):
-        if any([x is None for x in header]):
+    with open(file_path, 'r', encoding=encoding) as str_file:
+        sep = detect_separator(str_file)
+        header_row_idx, header = detect_headers(str_file, sep)
+        if header is None:
             return_dict = {'error': True}
             return return_dict
-    heading_columns = detect_heading_columns(str_file, sep)
-    trailing_columns = detect_trailing_columns(str_file, sep, heading_columns)
+        elif isinstance(header, list):
+            if any([x is None for x in header]):
+                return_dict = {'error': True}
+                return return_dict
+        heading_columns = detect_heading_columns(str_file, sep)
+        trailing_columns = detect_trailing_columns(str_file, sep, heading_columns)
+
     table, total_lines = parse_table(
-        str_file,
+        file_path,
         encoding,
         sep,
         header_row_idx,
@@ -77,6 +75,7 @@ def train_routine(file_path, num_rows=500):
     )
 
     if table.empty:
+        print("Could not read {}".format(file_path))
         return {}
 
 
