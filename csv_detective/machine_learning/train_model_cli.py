@@ -109,7 +109,7 @@ def train_model(list_features_dict, y_true):
 
 
 def create_list_files(csv_folder, list_resources_ids):
-    csv_paths = ["./{0}/{1}.csv".format(csv_folder, resource_id) for resource_id in list_resources_ids]
+    csv_paths = ["{0}/{1}.csv".format(csv_folder, resource_id) for resource_id in list_resources_ids]
     return csv_paths
 
 if __name__ == '__main__':
