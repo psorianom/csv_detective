@@ -106,6 +106,6 @@ def train_routine(file_path, num_rows=500):
 if __name__ == '__main__':
     file_path = "/data/datagouv/csv_top/edf158f9-bdde-4e6e-b92c-c156c9316383.csv"
 
-    X_csv = train_routine(file_path)
+    features_dict = train_routine(file_path)
 
     pass

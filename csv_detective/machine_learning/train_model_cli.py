@@ -15,9 +15,16 @@ import pandas as pd
 from argopt import argopt
 from joblib import Parallel, delayed
 from functools import partial
+
+from sklearn.feature_extraction import DictVectorizer
 from tqdm import tqdm
 import logging
 import numpy as np
+from itertools import chain
+
+from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report, confusion_matrix
 
 from csv_detective.machine_learning.training import train_routine
 
@@ -34,13 +41,6 @@ def run_csv_detective(file_path):
     except Exception as e:
         logger.info(e)
 
-    # if len(inspection_results) > 2 and len(inspection_results["columns"]):
-    #     inspection_results["file"] = file_path
-    #     logger.info(file_path, inspection_results)
-    #     return inspection_results
-    # else:
-    #     logger.info("Analysis output of file {} was empty".format(tagged_file_path))
-
 
 def get_files(data_path, ext="csv"):
     return glob.glob(data_path + "/*.{}".format(ext))
@@ -50,6 +50,7 @@ def get_csv_detective_analysis_single(list_files, begin_from=None, n_datasets=No
     if n_datasets:
         list_files = list_files[:n_datasets]
 
+    print(list_files)
     if begin_from:
         indx_begin = [i for i, path in enumerate(list_files) if begin_from in path]
         if indx_begin:
@@ -88,6 +89,24 @@ def load_annotations_ids(tagged_file_path):
     return y_true, csv_ids
 
 
+def train_model(list_features_dict, y_true):
+    dv = DictVectorizer(sparse=False)
+    X = dv.fit_transform(list_features_dict)
+    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
+
+    indices = list(sss.split(X, y_true))
+    train_indices, test_indices = indices[0][0], indices[0][1]
+
+    X_train, X_test = X[train_indices], X[test_indices]
+    y_train, y_test = y_true[train_indices], y_true[test_indices]
+
+    clf = LogisticRegression()
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+
+    print(classification_report(y_true=y_test, y_pred=y_pred))
+
+
 
 def create_list_files(csv_folder, list_resources_ids):
     csv_paths = ["./{0}/{1}.csv".format(csv_folder, resource_id) for resource_id in list_resources_ids]
@@ -102,15 +121,17 @@ if __name__ == '__main__':
     n_cores = int(parser.cores)
 
     y_true, csv_ids = load_annotations_ids(tagged_file_path)
-    y_true = y_true[:5]
+    y_true = y_true[:]
 
     csv_path_list = create_list_files(csv_folder_path, csv_ids)
 
     if n_cores > 1:
-        list_dict_result = get_csv_detective_analysis(csv_path_list, begin_from=None, n_datasets=5, n_jobs=n_cores)
+        list_features_dict = get_csv_detective_analysis(csv_path_list, begin_from=None, n_datasets=None, n_jobs=n_cores)
     else:
-        list_dict_result = get_csv_detective_analysis_single(csv_path_list, begin_from=None, n_datasets=5)
+        list_features_dict = get_csv_detective_analysis_single(csv_path_list, begin_from=None, n_datasets=None)
 
-    assert len(list_dict_result) == len(y_true)
+    # assert len(list_features_dict) == len(y_true)
 
-    pass
+    list_features_dict = chain.from_iterable(list_features_dict)
+
+    train_model(list_features_dict, y_true)
