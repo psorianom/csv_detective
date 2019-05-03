@@ -23,8 +23,10 @@ from itertools import chain
 import numpy as np
 
 from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.svm import SVC
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, confusion_matrix
+
 
 from csv_detective.machine_learning.training import train_routine
 
@@ -102,7 +104,7 @@ def train_model(list_features_dict, y_true):
     X_train, X_test = X[train_indices], X[test_indices]
     y_train, y_test = y_true[train_indices], y_true[test_indices]
 
-    clf = LogisticRegression()
+    clf = SVC(kernel="poly", class_weight="balanced")
     clf.fit(X_train, y_train)
     y_pred = clf.predict(X_test)
 
@@ -129,9 +131,9 @@ if __name__ == '__main__':
     csv_path_list = create_list_files(csv_folder_path, csv_ids)
 
     if n_cores > 1:
-        list_features_dict = get_csv_detective_analysis(csv_path_list, begin_from=None, n_datasets=10, n_jobs=n_cores)
+        list_features_dict = get_csv_detective_analysis(csv_path_list, begin_from=None, n_datasets=None, n_jobs=n_cores)
     else:
-        list_features_dict = get_csv_detective_analysis_single(csv_path_list, begin_from=None, n_datasets=10)
+        list_features_dict = get_csv_detective_analysis_single(csv_path_list, begin_from=None, n_datasets=None)
 
     # assert len(list_features_dict) == len(y_true)
     not_same_n_columns = {}

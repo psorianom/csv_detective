@@ -35,12 +35,13 @@ def features(column:pd.Series):
     features["length_std"] = np.std(column.apply(len))
 
     # type of chars
-    features["chars_num_unique"] = len(Counter(column.to_string(header=False, index=False).replace("\n", "").strip(" ")))
+    features["chars_num_unique"] = len(Counter(column.to_string(header=False, index=False).replace("\n", "").replace(" ", "")))
     features["chars_avg_num_digits"] = np.mean(column.apply(lambda x: sum(1 for c in x if c.isdigit())))
     features["chars_avg_num_letters"] = np.mean(column.apply(lambda x: sum(1 for c in x if c.isalpha())))
     features["chars_avg_num_lowercase"] = np.mean(column.apply(lambda x: sum(1 for c in x if c.islower())))
     features["chars_avg_num_uppercase"] = np.mean(column.apply(lambda x: sum(1 for c in x if c.isupper())))
 
+    features["values_nunique"] = column.nunique()
     return features
 
 
@@ -48,7 +49,6 @@ def train_routine(file_path, num_rows=500):
     '''Returns a dict with information about the csv table and possible
     column contents
     '''
-
     with open(file_path, mode='rb') as binary_file:
         encoding = detect_encoding(binary_file)['encoding']
 
