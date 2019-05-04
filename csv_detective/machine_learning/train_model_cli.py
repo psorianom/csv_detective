@@ -61,6 +61,8 @@ def get_csv_detective_analysis_single(list_files, begin_from=None, n_datasets=No
         if indx_begin:
             list_files = list_files[indx_begin[0]:]
 
+
+
     list_dict_result = []
     for f in tqdm(list_files):
         output_csv_detective = run_csv_detective(f)
@@ -70,7 +72,7 @@ def get_csv_detective_analysis_single(list_files, begin_from=None, n_datasets=No
     return list_dict_result
 
 
-def get_csv_detective_analysis(list_files, begin_from=None, n_datasets=None, n_jobs=2):
+def get_csv_detective_analysis(list_files, begin_from=None, n_datasets=None, n_jobs=None):
     if n_datasets:
         list_files = list_files[:n_datasets]
 
@@ -79,9 +81,14 @@ def get_csv_detective_analysis(list_files, begin_from=None, n_datasets=None, n_j
         if indx_begin:
             list_files = list_files[indx_begin[0]:]
 
-    run_csv_detective_p = partial(run_csv_detective)
-    list_dict_result = Parallel(n_jobs=n_jobs)(
-        delayed(run_csv_detective_p)(file_path) for file_path in tqdm(list_files))
+    if n_jobs and n_jobs > 1:
+        run_csv_detective_p = partial(run_csv_detective)
+        list_dict_result = Parallel(n_jobs=n_jobs)(
+            delayed(run_csv_detective_p)(file_path) for file_path in tqdm(list_files))
+    else:
+        list_dict_result = [run_csv_detective(f) for f in tqdm(list_files)]
+
+
     list_dict_result = [d for d in list_dict_result if d]
     return list_dict_result
 
@@ -138,10 +145,7 @@ if __name__ == '__main__':
 
     csv_path_list = create_list_files(csv_folder_path, csv_ids)
 
-    if n_cores > 1:
-        list_features_dict = get_csv_detective_analysis(csv_path_list, begin_from=None, n_datasets=None, n_jobs=n_cores)
-    else:
-        list_features_dict = get_csv_detective_analysis_single(csv_path_list, begin_from=None, n_datasets=None)
+    list_features_dict = get_csv_detective_analysis(csv_path_list, begin_from=None, n_datasets=None, n_jobs=n_cores)
 
     # Transform to dict to keep better order
     features_dict =  {}
