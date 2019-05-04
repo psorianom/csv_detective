@@ -45,13 +45,14 @@ def features(column:pd.Series):
     return features
 
 
-def train_routine(file_path, num_rows=500):
+def train_routine(file_path, num_rows=50):
     '''Returns a dict with information about the csv table and possible
     column contents
     '''
+    import os
+    resource_id = os.path.basename(file_path)[:-4]
     with open(file_path, mode='rb') as binary_file:
         encoding = detect_encoding(binary_file)['encoding']
-
 
     with open(file_path, 'r', encoding=encoding) as str_file:
         sep = detect_separator(str_file)
@@ -95,11 +96,9 @@ def train_routine(file_path, num_rows=500):
     return_dict['trailing_columns'] = trailing_columns
     return_dict['ints_as_floats'] = res_ints_as_floats
 
-    # Here we begin with the type detection
     features_dict = list(table.apply(lambda column: features(column)).to_dict().values())
 
-
-    return features_dict
+    return {resource_id: features_dict}
 
 
 if __name__ == '__main__':

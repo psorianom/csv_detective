@@ -10,6 +10,7 @@ Arguments:
     --cores=<n> CORES                  Number of cores to use [default: 2]
 '''
 import glob
+from collections import defaultdict
 
 import pandas as pd
 from argopt import argopt
@@ -38,7 +39,7 @@ logger.addHandler(logging.StreamHandler())
 def run_csv_detective(file_path):
     logger.info("Extracting features from file {}".format(file_path))
     try:
-        feat_dict = train_routine(file_path)
+        feat_dict = train_routine(file_path, num_rows=500)
         return feat_dict
     except Exception as e:
         print("Could not read {}".format(file_path))
@@ -85,10 +86,18 @@ def get_csv_detective_analysis(list_files, begin_from=None, n_datasets=None, n_j
     return list_dict_result
 
 
-def load_annotations_ids(tagged_file_path):
+def load_annotations_ids(tagged_file_path, num_files=None):
     df_annotation = pd.read_csv(tagged_file_path)
-    y_true = df_annotation.human_detected.fillna("O").values
     csv_ids = df_annotation.id.unique()
+    dict_ids_tags = defaultdict(list)
+    if num_files:
+        csv_ids = csv_ids[:num_files]
+        df_annotation = df_annotation[df_annotation.id.isin(csv_ids)]
+    df_annotation.human_detected = df_annotation.human_detected.fillna("O")
+    for i, row in df_annotation.iterrows():
+        dict_ids_tags[row.id].append(row.human_detected)
+
+    y_true = np.array(list(chain.from_iterable(dict_ids_tags.values())))
 
     return y_true, csv_ids, df_annotation.groupby("id").count()["columns"].to_dict()
 
@@ -104,7 +113,7 @@ def train_model(list_features_dict, y_true):
     X_train, X_test = X[train_indices], X[test_indices]
     y_train, y_test = y_true[train_indices], y_true[test_indices]
 
-    clf = SVC(kernel="poly", class_weight="balanced")
+    clf = SVC(kernel="rbf")
     clf.fit(X_train, y_train)
     y_pred = clf.predict(X_test)
 
@@ -125,8 +134,7 @@ if __name__ == '__main__':
     csv_folder_path = parser.p
     output_path = parser.output or "."
     n_cores = int(parser.cores)
-    y_true, csv_ids, RESOURCE_ID_COLUMNS = load_annotations_ids(tagged_file_path)
-    y_true = y_true[:]
+    y_true, csv_ids, RESOURCE_ID_COLUMNS = load_annotations_ids(tagged_file_path, num_files=False)
 
     csv_path_list = create_list_files(csv_folder_path, csv_ids)
 
@@ -135,17 +143,23 @@ if __name__ == '__main__':
     else:
         list_features_dict = get_csv_detective_analysis_single(csv_path_list, begin_from=None, n_datasets=None)
 
+    # Transform to dict to keep better order
+    features_dict =  {}
+    for dico in list_features_dict:
+        key = list(dico.keys())[0]
+        features_dict[key] = dico[key]
+
     # assert len(list_features_dict) == len(y_true)
     not_same_n_columns = {}
     print(len(RESOURCE_ID_COLUMNS))
     print(len(list_features_dict))
-    for i, (k, v) in enumerate(RESOURCE_ID_COLUMNS.items()):
-        if len(list_features_dict[i]) > v:
-            not_same_n_columns[k] = (len(list_features_dict[i]), v)
-            list_features_dict[i] = list_features_dict[i][: v]
+    for k, v in RESOURCE_ID_COLUMNS.items():
+        if len(features_dict[k]) > v:
+            not_same_n_columns[k] = (len(features_dict[k]), v)
+            features_dict[k] = features_dict[k][: v]
     print(not_same_n_columns)
 
-    list_features_dict = list(chain.from_iterable(list_features_dict))
+    list_features_dict = list(chain.from_iterable(features_dict.values()))
 
     # HORRIBLE HACK! Adding a new siren instance bc there is only one in the dataset
     id_siren = np.where(y_true == "siren")[0][0]
@@ -154,5 +168,9 @@ if __name__ == '__main__':
     y_true = y_true.tolist()
     y_true.append("siren")
     y_true = np.array(y_true)
+
+    not_bools = np.where(y_true != "booleen")[0]
+    y_true[not_bools] = "O"
+
 
     train_model(list_features_dict, y_true)
