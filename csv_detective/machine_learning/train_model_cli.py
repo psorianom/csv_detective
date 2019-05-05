@@ -17,26 +17,21 @@ import numpy as np
 import pandas as pd
 from argopt import argopt
 from joblib import Parallel, delayed
-from sklearn.feature_extraction import DictVectorizer
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.model_selection import StratifiedShuffleSplit
-from sklearn.svm import SVC
 from tqdm import tqdm
 
-from csv_detective.machine_learning.training import extract_text_features
+from detection import detect_encoding, detect_separator, detect_headers, parse_table
+from machine_learning.training import train_model2, create_data_matrix, features_cell
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 logger.addHandler(logging.StreamHandler())
 
 
-def extract_features(file_path, true_labels):
+def features_wrap(file_path, true_labels):
     file_labels = true_labels[extract_id(file_path)]
     logger.info("Extracting features from file {}".format(file_path))
     try:
-        features = extract_text_features(file_path, true_labels=file_labels, num_rows=100)
+        features = extract_features(file_path, true_labels=file_labels, num_rows=100)
         return features
     except Exception as e:
         print("Could not read {}".format(file_path))
@@ -54,7 +49,7 @@ def extract_id(file_path):
     return resource_id
 
 
-def get_features(list_files, true_labels, begin_from=None, n_datasets=None, n_jobs=None):
+def cols2features(list_files, true_labels, begin_from=None, n_datasets=None, n_jobs=None):
     if n_datasets:
         list_files = list_files[:n_datasets]
 
@@ -65,36 +60,19 @@ def get_features(list_files, true_labels, begin_from=None, n_datasets=None, n_jo
 
     if n_jobs and n_jobs > 1:
         features = Parallel(n_jobs=n_jobs)(
-            delayed(extract_features)(file_path, true_labels) for file_path in tqdm(list_files))
+            delayed(features_wrap)(file_path, true_labels) for file_path in tqdm(list_files))
     else:
-        features = [extract_features(f, true_labels=true_labels) for f in tqdm(list_files)]
+        features = [features_wrap(f, true_labels=true_labels) for f in tqdm(list_files)]
 
     features = [d for d in features if d]
-    return features
+    features_docs, labels, columns_names, additional_features = zip(*features)
 
+    features_docs = list(chain.from_iterable(features_docs))
+    labels = list(chain.from_iterable(labels))
+    columns_names = list(chain.from_iterable(columns_names))
+    additional_features = list(chain.from_iterable(additional_features))
 
-def cells2docs(list_files, true_labels, begin_from=None, n_datasets=None, n_jobs=None):
-    if n_datasets:
-        list_files = list_files[:n_datasets]
-
-    if begin_from:
-        indx_begin = [i for i, path in enumerate(list_files) if begin_from in path]
-        if indx_begin:
-            list_files = list_files[indx_begin[0]:]
-
-    if n_jobs and n_jobs > 1:
-        documents = Parallel(n_jobs=n_jobs)(
-            delayed(extract_features)(file_path, true_labels) for file_path in tqdm(list_files))
-    else:
-        documents = [extract_features(f, true_labels=true_labels) for f in tqdm(list_files)]
-
-    documents = [d for d in documents if d]
-    documents, labels = zip(*documents)
-
-    documents = chain.from_iterable(documents)
-    labels = chain.from_iterable(labels)
-
-    return documents, labels
+    return features_docs, labels, columns_names, additional_features
 
 
 def load_annotations_ids(tagged_file_path, num_files=None):
@@ -115,70 +93,74 @@ def load_annotations_ids(tagged_file_path, num_files=None):
     return y_true, num_annotations_per_resource, dict_ids_labels
 
 
-def train_model(list_features_dict, y_true):
-    dv = DictVectorizer(sparse=False)
-    X = dv.fit_transform(list_features_dict)
-    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
-
-    indices = list(sss.split(X, y_true))
-    train_indices, test_indices = indices[0][0], indices[0][1]
-
-    X_train, X_test = X[train_indices], X[test_indices]
-    y_train, y_test = y_true[train_indices], y_true[test_indices]
-
-    clf = SVC(kernel="rbf")
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-
-    print(classification_report(y_true=y_test, y_pred=y_pred))
-
-
 def create_list_files(csv_folder, list_resources_ids):
     csv_paths = ["{0}/{1}.csv".format(csv_folder, resource_id) for resource_id in sorted(list_resources_ids)]
     return csv_paths
 
 
-def create_data_matrix(documents):
-    vect = CountVectorizer(ngram_range=(1, 3), analyzer="char", max_df=0.8, min_df=2)
-    X = vect.fit_transform(documents)
-    return X
+def load_file(file_path, true_labels, num_rows=50):
+    with open(file_path, mode='rb') as binary_file:
+        encoding = detect_encoding(binary_file)['encoding']
+
+    with open(file_path, 'r', encoding=encoding) as str_file:
+        sep = detect_separator(str_file)
+        header_row_idx, header = detect_headers(str_file, sep)
+        if header is None:
+            return_dict = {'error': True}
+            return return_dict
+        elif isinstance(header, list):
+            if any([x is None for x in header]):
+                return_dict = {'error': True}
+                return return_dict
+
+    table, total_lines = parse_table(
+        file_path,
+        encoding,
+        sep,
+        header_row_idx,
+        num_rows
+    )
+
+    if table.empty:
+        print("Could not read {}".format(file_path))
+        return
+
+    assert table.shape[1] == len(true_labels), "Annotated number of columns does not match the number of columns in" \
+                                               " file {}".format(file_path)
+    return table
 
 
-def train_model2(X, y_true):
-    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
-    y_true = np.array(list(y_true))
-    indices = list(sss.split(X, y_true))
-    train_indices, test_indices = indices[0][0], indices[0][1]
+def extract_features(file_path, true_labels, num_rows=50):
+    '''Returns a dict with information about the csv table and possible
+    column contents
+    '''
+    resource_df = load_file(file_path, true_labels, num_rows=num_rows)
 
-    X_train, X_test = X[train_indices], X[test_indices]
-    y_train, y_test = y_true[train_indices], y_true[test_indices]
+    if resource_df is None:
+        return None
 
-    clf = LogisticRegression()
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
+    resource_list = []
+    expanded_col_names = []
+    for j in range(len(resource_df.columns)):
+        temp_list = resource_df.iloc[:, j].dropna().to_list()
+        resource_list.append(temp_list)
+        expanded_col_names.extend([resource_df.columns[j].lower()] * len(temp_list))
 
-    print(classification_report(y_true=y_test, y_pred=y_pred))
-    show_confusion_matrix(y_true=y_test, y_pred=y_pred, labels=np.unique(y_true))
-    pass
+    assert len(resource_list) == len(true_labels)  # Assert we have the same number of annotated columns and columns
 
+    expanded_labels = []
+    expanded_rows = []
 
-def show_confusion_matrix(y_true, y_pred, labels):
-    import seaborn as sns
-    import matplotlib.pyplot as plt
+    for i, l in enumerate(true_labels):
+        expanded_labels.extend([l] * len(resource_list[i]))
+        expanded_rows.extend(resource_list[i])
 
-    cm = confusion_matrix(y_true=y_true, y_pred=y_pred, labels=np.unique(y_true))
+    additional_features = features_cell(expanded_rows)
 
-    ax = plt.subplot()
-    sns.heatmap(cm, annot=True, ax=ax, fmt="g", cmap='Greens')  # annot=True to annotate cells
+    assert len(expanded_rows) == len(expanded_labels) == len(expanded_col_names) == len(additional_features)
 
-    # labels, title and ticks
-    ax.set_xlabel('Predicted labels')
-    ax.set_ylabel('True labels')
-    ax.set_title('Confusion Matrix')
-    ax.xaxis.set_ticklabels(labels[::-1], rotation=90)
-    ax.yaxis.set_ticklabels(labels, rotation=0)
+    return expanded_rows, expanded_labels, expanded_col_names, additional_features
 
-    plt.show()
 
 if __name__ == '__main__':
     # try_detective(begin_from="DM1_2018_EHPAD")
@@ -187,44 +169,13 @@ if __name__ == '__main__':
     csv_folder_path = parser.p
     output_path = parser.output or "."
     n_cores = int(parser.cores)
-    y_true, resource_ncolumns, dict_ids_labels = load_annotations_ids(tagged_file_path, num_files=10)
+    y_true, resource_ncolumns, dict_ids_labels = load_annotations_ids(tagged_file_path, num_files=100)
 
     csv_path_list = create_list_files(csv_folder_path, list(resource_ncolumns.keys()))
 
-    list_documents, list_labels = cells2docs(csv_path_list, true_labels=dict_ids_labels,
-                                             begin_from=None, n_datasets=None, n_jobs=n_cores)
+    list_documents, list_labels, list_columns_names, list_additional_features = cols2features(csv_path_list, true_labels=dict_ids_labels,
+                                                begin_from=None, n_datasets=None, n_jobs=n_cores)
 
-    X = create_data_matrix(list_documents)
-    train_model2(X, list_labels)
+    X_all, cell_cv, header_cv, extra_dv = create_data_matrix(list_documents, list_columns_names, list_additional_features)
+    train_model2(X_all, list_labels)
     pass
-
-    # # Transform to dict to keep better order
-    # features_dict = {}
-    # for dico in list_documents:
-    #     key = list(dico.keys())[0]
-    #     features_dict[key] = dico[key]
-    #
-    # # assert len(list_features_dict) == len(y_true)
-    # not_same_n_columns = {}
-    # print(len(RESOURCE_ID_COLUMNS))
-    # print(len(list_documents))
-    # for k, v in RESOURCE_ID_COLUMNS.items():
-    #     if len(features_dict[k]) > v:
-    #         not_same_n_columns[k] = (len(features_dict[k]), v)
-    #         features_dict[k] = features_dict[k][: v]
-    # print(not_same_n_columns)
-    #
-    # list_documents = list(chain.from_iterable(features_dict.values()))
-    #
-    # # HORRIBLE HACK! Adding a new siren instance bc there is only one in the dataset
-    # id_siren = np.where(y_true == "siren")[0][0]
-    # print(id_siren)
-    # list_documents.append(list_documents[id_siren])
-    # y_true = y_true.tolist()
-    # y_true.append("siren")
-    # y_true = np.array(y_true)
-    #
-    # not_bools = np.where(y_true != "booleen")[0]
-    # y_true[not_bools] = "O"
-    #
-    # train_model(list_documents, y_true)

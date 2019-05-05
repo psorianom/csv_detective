@@ -6,26 +6,53 @@ Here we train a machine learning model to detect the type of column. We need :
 2. Start csv_detective routine for each filename
 3. Get the
 """
+import string
 from collections import Counter
 # from csv_detective.machine_learning.train_model_cli import RESOURCE_ID_COLUMNS
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.tree import ExtraTreeClassifier
+from sklearn.svm import SVC
+from scipy.sparse import vstack, hstack
 
-from csv_detective.detection import detect_encoding, detect_separator, detect_headers, detect_heading_columns, \
-    detect_trailing_columns, parse_table, detect_ints_as_floats
 
 import numpy as np
 import pandas as pd
 
 
-def features_cell(value):
-    pass
+def features_cell(rows: list):
 
+    list_features = []
+    features = {}
+    for value in rows:
 
-def features_cell_wise(column:pd.Series):
+        # num chars
+        features["num_chars"] = len(value)
 
+        # num numeric
+        features["num_numeric"] = sum(1 for c in value if c.isnumeric())
 
+        # num alpha
+        features["num_alpha"] = sum(1 for c in value if c.isalpha())
 
+        # num distinct chars
+        features["num_unique_chars"] = len(set(value))
 
-    pass
+        # num white spaces
+        features["num_spaces"] = value.count(" ")
+
+        # num of special chars
+        features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
+
+        list_features.append(features)
+
+    return list_features
+
 
 
 def features_column_wise(column:pd.Series):
@@ -57,77 +84,84 @@ def features_column_wise(column:pd.Series):
     return features
 
 
-def load_file(file_path, true_labels, num_rows=50):
-    with open(file_path, mode='rb') as binary_file:
-        encoding = detect_encoding(binary_file)['encoding']
+def train_model(list_features_dict, y_true):
+    dv = DictVectorizer(sparse=False)
+    X = dv.fit_transform(list_features_dict)
+    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
 
-    with open(file_path, 'r', encoding=encoding) as str_file:
-        sep = detect_separator(str_file)
-        header_row_idx, header = detect_headers(str_file, sep)
-        if header is None:
-            return_dict = {'error': True}
-            return return_dict
-        elif isinstance(header, list):
-            if any([x is None for x in header]):
-                return_dict = {'error': True}
-                return return_dict
+    indices = list(sss.split(X, y_true))
+    train_indices, test_indices = indices[0][0], indices[0][1]
 
-    table, total_lines = parse_table(
-        file_path,
-        encoding,
-        sep,
-        header_row_idx,
-        num_rows
-    )
+    X_train, X_test = X[train_indices], X[test_indices]
+    y_train, y_test = y_true[train_indices], y_true[test_indices]
 
-    if table.empty:
-        print("Could not read {}".format(file_path))
-        return
+    clf = LogisticRegression()
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
 
-    assert table.shape[1] == len(true_labels), "Annotated number of columns does not match the number of columns in" \
-                                               " file {}".format(file_path)
-    return table
+    print(classification_report(y_true=y_test, y_pred=y_pred))
 
 
-def extract_text_features(file_path, true_labels, num_rows=50):
-    '''Returns a dict with information about the csv table and possible
-    column contents
-    '''
-    resource_df = load_file(file_path, true_labels, num_rows=num_rows)
+def show_confusion_matrix(y_true, y_pred, labels):
+    import seaborn as sns
+    import matplotlib.pyplot as plt
 
-    if resource_df is None:
-        return None
+    cm = confusion_matrix(y_true=y_true, y_pred=y_pred, labels=np.unique(y_true))
 
-    resource_list = []
-    for j in range(len(resource_df.columns)):
-        resource_list.append(resource_df.iloc[:, j].dropna().values)
+    ax = plt.subplot()
+    sns.heatmap(cm, annot=True, ax=ax, fmt="g", cmap='Greens')  # annot=True to annotate cells
 
-    assert(len(resource_list) == len(true_labels))  # Assert we have the same number of annotated columns and columns
-    expanded_labels = []
-    expanded_rows = []
-
-    for i, l in enumerate(true_labels):
-        expanded_labels.extend([l] * len(resource_list[i]))
-        expanded_rows.extend(resource_list[i])
-
-    return expanded_rows, expanded_labels
+    # labels, title and ticks
+    ax.set_xlabel('Predicted labels')
+    ax.set_ylabel('True labels')
+    ax.set_title('Confusion Matrix')
+    ax.xaxis.set_ticklabels(labels, rotation=90)
+    ax.yaxis.set_ticklabels(labels, rotation=0)
+    plt.show()
 
 
-def extract_aggregated_features(file_path, true_labels, num_rows=50):
-    '''Returns a dict with information about the csv table and possible
-    column contents
-    '''
-    import os
-    resource_id = os.path.basename(file_path)[:-4]
-    resource_df = load_file(file_path, true_labels, num_rows=50)
+def train_model2(X, y_true):
+    sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
+    y_true = np.array(list(y_true))
+    indices = list(sss.split(X, y_true))
+    train_indices, test_indices = indices[0][0], indices[0][1]
 
-    features_dict = list(resource_df.apply(lambda column: features_column_wise(column)).to_dict().values())
-    return {resource_id: features_dict}
+    X_train, X_test = X[train_indices], X[test_indices]
+    y_train, y_test = y_true[train_indices], y_true[test_indices]
+
+    clf = SVC(kernel="linear")
+    # clf = LogisticRegression()
+    clf = MLPClassifier(hidden_layer_sizes=(200,200), activation="relu")
+    # clf = ExtraTreeClassifier(class_weight="balanced")
+    # clf = RandomForestClassifier(n_estimators=200, n_jobs=5, class_weight="balanced_subsample")
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+
+    print(classification_report(y_true=y_test, y_pred=y_pred))
+    show_confusion_matrix(y_true=y_test, y_pred=y_pred, labels=np.unique(y_true))
+    pass
+
+
+def create_data_matrix(documents, columns_names, extra_features):
+
+    # Text from the cell value itself
+    cell_cv = CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", max_df=0.8, min_df=2)
+    X_cell = cell_cv.fit_transform(documents)
+
+
+    # Text from the header
+    header_cv = CountVectorizer(ngram_range=(1, 3), analyzer="char")
+    X_header = header_cv.fit_transform(columns_names)
+
+    # Hand-crafted features
+    extra_dv = DictVectorizer()
+    X_extra = extra_dv.fit_transform(extra_features)
+
+    X_all = hstack([X_cell, X_extra], format="csr")
+
+    return X_all, cell_cv, header_cv, extra_dv
 
 
 if __name__ == '__main__':
     file_path = "/data/datagouv/csv_top/edf158f9-bdde-4e6e-b92c-c156c9316383.csv"
 
-    features_dict = extract_aggregated_features(file_path)
-
-    pass
