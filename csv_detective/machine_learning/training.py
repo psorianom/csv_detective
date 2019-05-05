@@ -16,7 +16,19 @@ import numpy as np
 import pandas as pd
 
 
-def features(column:pd.Series):
+def features_cell(value):
+    pass
+
+
+def features_cell_wise(column:pd.Series):
+
+
+
+
+    pass
+
+
+def features_column_wise(column:pd.Series):
     """Extract features of the column (np.array)
 
     """
@@ -45,12 +57,7 @@ def features(column:pd.Series):
     return features
 
 
-def train_routine(file_path, num_rows=50):
-    '''Returns a dict with information about the csv table and possible
-    column contents
-    '''
-    import os
-    resource_id = os.path.basename(file_path)[:-4]
+def load_file(file_path, true_labels, num_rows=50):
     with open(file_path, mode='rb') as binary_file:
         encoding = detect_encoding(binary_file)['encoding']
 
@@ -64,8 +71,6 @@ def train_routine(file_path, num_rows=50):
             if any([x is None for x in header]):
                 return_dict = {'error': True}
                 return return_dict
-        heading_columns = detect_heading_columns(str_file, sep)
-        trailing_columns = detect_trailing_columns(str_file, sep, heading_columns)
 
     table, total_lines = parse_table(
         file_path,
@@ -77,33 +82,52 @@ def train_routine(file_path, num_rows=50):
 
     if table.empty:
         print("Could not read {}".format(file_path))
-        return {}
+        return
+
+    assert table.shape[1] == len(true_labels), "Annotated number of columns does not match the number of columns in" \
+                                               " file {}".format(file_path)
+    return table
 
 
+def extract_text_features(file_path, true_labels, num_rows=50):
+    '''Returns a dict with information about the csv table and possible
+    column contents
+    '''
+    resource_df = load_file(file_path, true_labels, num_rows=num_rows)
 
-    # Detects columns that are ints but written as floats
-    res_ints_as_floats = list(detect_ints_as_floats(table))
+    if resource_df is None:
+        return None
 
-    # Creating return dictionary
-    return_dict = dict()
-    return_dict['encoding'] = encoding
-    return_dict['separator'] = sep
-    return_dict['header_row_idx'] = header_row_idx
-    return_dict['header'] = header
-    return_dict['total_lines'] = total_lines
+    resource_list = []
+    for j in range(len(resource_df.columns)):
+        resource_list.append(resource_df.iloc[:, j].dropna().values)
 
-    return_dict['heading_columns'] = heading_columns
-    return_dict['trailing_columns'] = trailing_columns
-    return_dict['ints_as_floats'] = res_ints_as_floats
+    assert(len(resource_list) == len(true_labels))  # Assert we have the same number of annotated columns and columns
+    expanded_labels = []
+    expanded_rows = []
 
-    features_dict = list(table.apply(lambda column: features(column)).to_dict().values())
+    for i, l in enumerate(true_labels):
+        expanded_labels.extend([l] * len(resource_list[i]))
+        expanded_rows.extend(resource_list[i])
 
+    return expanded_rows, expanded_labels
+
+
+def extract_aggregated_features(file_path, true_labels, num_rows=50):
+    '''Returns a dict with information about the csv table and possible
+    column contents
+    '''
+    import os
+    resource_id = os.path.basename(file_path)[:-4]
+    resource_df = load_file(file_path, true_labels, num_rows=50)
+
+    features_dict = list(resource_df.apply(lambda column: features_column_wise(column)).to_dict().values())
     return {resource_id: features_dict}
 
 
 if __name__ == '__main__':
     file_path = "/data/datagouv/csv_top/edf158f9-bdde-4e6e-b92c-c156c9316383.csv"
 
-    features_dict = train_routine(file_path)
+    features_dict = extract_aggregated_features(file_path)
 
     pass
