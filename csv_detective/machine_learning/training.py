@@ -131,7 +131,7 @@ def train_model2(X, y_true):
 
     clf = SVC(kernel="linear")
     # clf = LogisticRegression()
-    clf = MLPClassifier(hidden_layer_sizes=(200,200), activation="relu")
+    clf = MLPClassifier(hidden_layer_sizes=(50,50), activation="relu")
     # clf = ExtraTreeClassifier(class_weight="balanced")
     # clf = RandomForestClassifier(n_estimators=200, n_jobs=5, class_weight="balanced_subsample")
     clf.fit(X_train, y_train)

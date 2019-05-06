@@ -19,8 +19,8 @@ from argopt import argopt
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
-from detection import detect_encoding, detect_separator, detect_headers, parse_table
-from machine_learning.training import train_model2, create_data_matrix, features_cell
+from csv_detective.detection import detect_encoding, detect_separator, detect_headers, parse_table
+from csv_detective.machine_learning.training import train_model2, create_data_matrix, features_cell
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
