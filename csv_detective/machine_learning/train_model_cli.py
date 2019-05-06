@@ -6,11 +6,13 @@ Usage:
 Arguments:
     <i>                                An input file or directory (if dir it will convert all txt files inside).
     <p>                                Path where to find the resource's CSVs
-    --output FOLDER                    Folder where to store the output structures [default:"."]
-    --cores=<n> CORES                  Number of cores to use [default: 2]
+    --output FOLDER                    Folder where to store the output structures [default: "."]
+    --num_files NFILES                 Number of files (CSVs) to work with [default: 10:int]
+    --num_rows NROWS                   Number of rows per file to use [default: 100:int]
+    --cores=<n> CORES                  Number of cores to use [default: 2:int]
 '''
 import glob
-import logging
+# import logging
 from itertools import chain
 
 import numpy as np
@@ -21,13 +23,14 @@ from tqdm import tqdm
 
 from csv_detective.detection import detect_encoding, detect_separator, detect_headers, parse_table
 from csv_detective.machine_learning.training import train_model2, create_data_matrix, features_cell
+from csv_detective.machine_learning import logger
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-logger.addHandler(logging.StreamHandler())
+# logger = logging.getLogger()
+# logger.setLevel(logging.DEBUG)
+# logger.addHandler(logging.StreamHandler())
 
 
-def features_wrap(file_path, true_labels):
+def features_wrap(file_path, true_labels, num_rows=10):
     file_labels = true_labels[extract_id(file_path)]
     logger.info("Extracting features from file {}".format(file_path))
     try:
@@ -49,20 +52,12 @@ def extract_id(file_path):
     return resource_id
 
 
-def cols2features(list_files, true_labels, begin_from=None, n_datasets=None, n_jobs=None):
-    if n_datasets:
-        list_files = list_files[:n_datasets]
-
-    if begin_from:
-        indx_begin = [i for i, path in enumerate(list_files) if begin_from in path]
-        if indx_begin:
-            list_files = list_files[indx_begin[0]:]
-
-    if n_jobs and n_jobs > 1:
-        features = Parallel(n_jobs=n_jobs)(
-            delayed(features_wrap)(file_path, true_labels) for file_path in tqdm(list_files))
+def cols2features(list_files, true_labels, num_rows=10, num_jobs=None):
+    if num_jobs and num_jobs > 1:
+        features = Parallel(n_jobs=num_jobs)(
+            delayed(features_wrap)(file_path, true_labels, num_rows) for file_path in tqdm(list_files))
     else:
-        features = [features_wrap(f, true_labels=true_labels) for f in tqdm(list_files)]
+        features = [features_wrap(f, true_labels=true_labels, num_rows=num_rows) for f in tqdm(list_files)]
 
     features = [d for d in features if d]
     features_docs, labels, columns_names, additional_features = zip(*features)
@@ -118,7 +113,8 @@ def load_file(file_path, true_labels, num_rows=50):
         encoding,
         sep,
         header_row_idx,
-        num_rows
+        num_rows,
+        random_state=42
     )
 
     if table.empty:
@@ -155,7 +151,7 @@ def extract_features(file_path, true_labels, num_rows=50):
         expanded_labels.extend([l] * len(resource_list[i]))
         expanded_rows.extend(resource_list[i])
 
-    additional_features = features_cell(expanded_rows)
+    additional_features = features_cell(expanded_rows, expanded_labels)
 
     assert len(expanded_rows) == len(expanded_labels) == len(expanded_col_names) == len(additional_features)
 
@@ -168,14 +164,20 @@ if __name__ == '__main__':
     tagged_file_path = parser.i
     csv_folder_path = parser.p
     output_path = parser.output or "."
+    num_files = parser.num_files
+    num_rows = parser.num_rows
+
     n_cores = int(parser.cores)
-    y_true, resource_ncolumns, dict_ids_labels = load_annotations_ids(tagged_file_path, num_files=100)
+    y_true, resource_ncolumns, dict_ids_labels = load_annotations_ids(tagged_file_path, num_files=num_files)
 
     csv_path_list = create_list_files(csv_folder_path, list(resource_ncolumns.keys()))
 
-    list_documents, list_labels, list_columns_names, list_additional_features = cols2features(csv_path_list, true_labels=dict_ids_labels,
-                                                begin_from=None, n_datasets=None, n_jobs=n_cores)
+    list_documents, list_labels, list_columns_names, list_additional_features = cols2features(csv_path_list,
+                                                                                              true_labels=dict_ids_labels,
+                                                                                              num_rows=num_rows,
+                                                                                              num_jobs=n_cores)
 
-    X_all, cell_cv, header_cv, extra_dv = create_data_matrix(list_documents, list_columns_names, list_additional_features)
+    X_all, cell_cv, header_cv, extra_dv = create_data_matrix(list_documents, list_columns_names,
+                                                             list_additional_features, list_labels)
     train_model2(X_all, list_labels)
     pass

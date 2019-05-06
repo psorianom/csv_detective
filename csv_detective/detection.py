@@ -37,7 +37,7 @@ def detect_encoding(the_file):
     return detector.result
 
 
-def parse_table(the_file, encoding, sep, headers_row, num_rows):
+def parse_table(the_file, encoding, sep, headers_row, num_rows, random_state=None):
     # Takes care of some problems
     table = None
     for encoding in [encoding, 'ISO-8859-1', 'utf-8']:
@@ -56,7 +56,7 @@ def parse_table(the_file, encoding, sep, headers_row, num_rows):
                 encoding=encoding
             )
             num_rows = min(num_rows - 1, len(table))
-            table = table.sample(num_rows)
+            table = table.sample(num_rows, random_state=random_state)
             break
         except TypeError:
             print('Trying encoding : {encoding}'.format(encoding=encoding))

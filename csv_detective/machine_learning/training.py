@@ -11,7 +11,7 @@ from collections import Counter
 # from csv_detective.machine_learning.train_model_cli import RESOURCE_ID_COLUMNS
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction import DictVectorizer
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report, confusion_matrix
@@ -20,17 +20,25 @@ from sklearn.tree import ExtraTreeClassifier
 from sklearn.svm import SVC
 from scipy.sparse import vstack, hstack
 
+from csv_detective.machine_learning import logger
 
 import numpy as np
 import pandas as pd
 
 
-def features_cell(rows: list):
+def get_sparsity(matrix):
+    return matrix.nnz / (matrix.shape[0] * matrix.shape[1])
+
+
+def features_cell(rows, labels):
 
     list_features = []
-    features = {}
-    for value in rows:
 
+    for i, value in enumerate(rows):
+        features = {}
+
+        # value =   value.strip()
+        label = labels[i]
         # num chars
         features["num_chars"] = len(value)
 
@@ -109,7 +117,7 @@ def show_confusion_matrix(y_true, y_pred, labels):
     cm = confusion_matrix(y_true=y_true, y_pred=y_pred, labels=np.unique(y_true))
 
     ax = plt.subplot()
-    sns.heatmap(cm, annot=True, ax=ax, fmt="g", cmap='Greens')  # annot=True to annotate cells
+    sns.heatmap(cm, annot=True, ax=ax, fmt="g")  # annot=True to annotate cells
 
     # labels, title and ticks
     ax.set_xlabel('Predicted labels')
@@ -129,12 +137,13 @@ def train_model2(X, y_true):
     X_train, X_test = X[train_indices], X[test_indices]
     y_train, y_test = y_true[train_indices], y_true[test_indices]
 
-    clf = SVC(kernel="linear")
-    # clf = LogisticRegression()
-    clf = MLPClassifier(hidden_layer_sizes=(50,50), activation="relu")
+    # clf = SVC(kernel="linear")
+    clf = LogisticRegression(multi_class="auto")
+    # clf = MLPClassifier(hidden_layer_sizes=(50,50), activation="relu")
     # clf = ExtraTreeClassifier(class_weight="balanced")
     # clf = RandomForestClassifier(n_estimators=200, n_jobs=5, class_weight="balanced_subsample")
     clf.fit(X_train, y_train)
+    logger.info("Training with a matrix with shape {}".format(X_train.shape))
     y_pred = clf.predict(X_test)
 
     print(classification_report(y_true=y_test, y_pred=y_pred))
@@ -142,22 +151,46 @@ def train_model2(X, y_true):
     pass
 
 
-def create_data_matrix(documents, columns_names, extra_features):
+def explore_features(label, labels_rows, features_cols, data_matrix):
+    labels_rows = np.array(labels_rows)
+    features = np.array(features_cols)
+
+    label_ids = np.where(labels_rows == label)[0]
+    nnz_features_ids = data_matrix[label_ids, :].nonzero()[1]
+
+
+    nnz_features = features[nnz_features_ids]
+
+    print(nnz_features)
+
+
+
+def create_data_matrix(documents, columns_names, extra_features, labels):
 
     # Text from the cell value itself
-    cell_cv = CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", max_df=0.8, min_df=2)
+    cell_cv = CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False)
     X_cell = cell_cv.fit_transform(documents)
+    logger.info("Built cell matrix with shape {}".format(X_cell.shape))
 
 
     # Text from the header
     header_cv = CountVectorizer(ngram_range=(1, 3), analyzer="char")
     X_header = header_cv.fit_transform(columns_names)
+    logger.info("Built header matrix with shape {}".format(X_header.shape))
 
     # Hand-crafted features
     extra_dv = DictVectorizer()
     X_extra = extra_dv.fit_transform(extra_features)
+    logger.info("Built extra features matrix with shape {0}. Sparsity {1}".format(X_extra.shape, get_sparsity(X_extra)))
+
+    # all_features = cell_cv.get_feature_names() + extra_dv.get_feature_names()
 
     X_all = hstack([X_cell, X_extra], format="csr")
+
+    logger.info("Built a matrix with shape {}".format(X_all.shape))
+
+    # Explore
+    # explore_features("booleen", features_cols=all_features, labels_rows=labels, data_matrix=X_all)
 
     return X_all, cell_cv, header_cv, extra_dv
 
