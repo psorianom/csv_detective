@@ -33,12 +33,51 @@ def get_sparsity(matrix):
 def features_cell(rows, labels):
 
     list_features = []
+    is_float = lambda x: x.replace('.','',1).isdigit() and "." in x
 
     for i, value in enumerate(rows):
         features = {}
 
-        # value =   value.strip()
-        label = labels[i]
+        features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
+        if features["is_numeric"]:
+            try:
+                numeric_value = int(value)
+            except:
+                numeric_value = float(value)
+
+            if numeric_value < 0:
+                features["<0"] = 1
+            elif 0 <= numeric_value < 1000:
+                features[">=0<1000"] = 1
+            elif 1000 <= numeric_value < 10000:
+                features[">=1k<10k"] = 1
+            elif 10000 <= numeric_value < 100000:
+                features[">=10k<100k"] = 1
+
+        # "contextual" features
+
+        if i > 0:
+            features["is_numeric-1"] = 1 if rows[i-1].isnumeric() or is_float(rows[i-1]) else 0
+            features["num_chars_-1"] = len(rows[i-1])
+            if i > 1:
+                features["is_numeric-2"] = 1 if rows[i-2].isnumeric() or is_float(rows[i-2]) else 0
+                features["num_chars_-2"] = len(rows[i-2])
+        if i <= len(rows) - 2:
+            features["is_numeric+1"] = 1 if rows[i+1].isnumeric() or is_float(rows[i+1]) else 0
+            features["num_chars_+1"] = len(rows[i+1])
+            if i <= len(rows) - 3:
+                features["is_numeric+2"] = 1 if rows[i+2].isnumeric() or is_float(rows[i+2]) else 0
+                features["num_chars_+2"] = len(rows[i+2])
+
+
+
+        # num lowercase
+        features["num_lower"] = sum(1 for c in value if c.islower())
+
+        # num uppercase
+        features["num_upper"] = sum(1 for c in value if c.isupper())
+
+
         # num chars
         features["num_chars"] = len(value)
 
@@ -46,16 +85,16 @@ def features_cell(rows, labels):
         features["num_numeric"] = sum(1 for c in value if c.isnumeric())
 
         # num alpha
-        features["num_alpha"] = sum(1 for c in value if c.isalpha())
+        # features["num_alpha"] = sum(1 for c in value if c.isalpha())
 
         # num distinct chars
-        features["num_unique_chars"] = len(set(value))
+        # features["num_unique_chars"] = len(set(value))
 
         # num white spaces
-        features["num_spaces"] = value.count(" ")
+        # features["num_spaces"] = value.count(" ")
 
         # num of special chars
-        features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
+        # features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
 
         list_features.append(features)
 
@@ -128,7 +167,31 @@ def show_confusion_matrix(y_true, y_pred, labels):
     plt.show()
 
 
-def train_model2(X, y_true):
+def explain_parameters(clf:LogisticRegression, label_id, vectorizers, features_names, n_feats=10):
+    import seaborn as sns
+    import matplotlib.pylab as plt
+
+    if len(vectorizers) > 1:
+        features = np.array(vectorizers[0].get_feature_names() + vectorizers[1].get_feature_names())
+    else:
+        features = np.array(vectorizers[0].get_feature_names())
+
+    top_coefs_ids = clf.coef_[label_id].argsort()[::-1][:10]
+    bottom_coefs_ids = clf.coef_[label_id].argsort()[:10][::-1]
+
+    # top_coefs_feats = features[top_coefs_ids]
+    # bottom_coefs_feats = features[bottom_coefs_ids]
+
+    top_bottom_ids = list(top_coefs_ids) + list(bottom_coefs_ids)
+    top_bottom_weights = clf.coef_[label_id][top_bottom_ids]
+    top_bottom_feats = features[top_bottom_ids]
+
+    for w, f in zip(top_bottom_weights, top_bottom_feats):
+        logger.info("{0}:{1}".format(w, f))
+    pass
+
+
+def train_model2(X, y_true, vectorizers):
     sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
     y_true = np.array(list(y_true))
     indices = list(sss.split(X, y_true))
@@ -138,22 +201,25 @@ def train_model2(X, y_true):
     y_train, y_test = y_true[train_indices], y_true[test_indices]
 
     # clf = SVC(kernel="linear")
-    clf = LogisticRegression(multi_class="auto")
-    # clf = MLPClassifier(hidden_layer_sizes=(50,50), activation="relu")
+    clf = LogisticRegression(penalty="l1", multi_class="auto")
+    # clf = MLPClassifier(hidden_layer_sizes=(100,), activation="relu")
     # clf = ExtraTreeClassifier(class_weight="balanced")
     # clf = RandomForestClassifier(n_estimators=200, n_jobs=5, class_weight="balanced_subsample")
     clf.fit(X_train, y_train)
     logger.info("Training with a matrix with shape {}".format(X_train.shape))
     y_pred = clf.predict(X_test)
 
+
+
+
     print(classification_report(y_true=y_test, y_pred=y_pred))
-    show_confusion_matrix(y_true=y_test, y_pred=y_pred, labels=np.unique(y_true))
-    pass
+    # show_confusion_matrix(y_true=y_test, y_pred=y_pred, labels=np.unique(y_true))
+    return clf
 
 
-def explore_features(label, labels_rows, features_cols, data_matrix):
+def explore_features(label, labels_rows, vectorizer, data_matrix):
     labels_rows = np.array(labels_rows)
-    features = np.array(features_cols)
+    features = np.array(vectorizer.get_feature_names())
 
     label_ids = np.where(labels_rows == label)[0]
     nnz_features_ids = data_matrix[label_ids, :].nonzero()[1]
@@ -168,7 +234,7 @@ def explore_features(label, labels_rows, features_cols, data_matrix):
 def create_data_matrix(documents, columns_names, extra_features, labels):
 
     # Text from the cell value itself
-    cell_cv = CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False)
+    cell_cv = CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False, max_features=2000)
     X_cell = cell_cv.fit_transform(documents)
     logger.info("Built cell matrix with shape {}".format(X_cell.shape))
 

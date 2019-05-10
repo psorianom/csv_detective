@@ -8,7 +8,7 @@ Arguments:
     <p>                                Path where to find the resource's CSVs
     --output FOLDER                    Folder where to store the output structures [default: "."]
     --num_files NFILES                 Number of files (CSVs) to work with [default: 10:int]
-    --num_rows NROWS                   Number of rows per file to use [default: 100:int]
+    --num_rows NROWS                   Number of rows per file to use [default: 200:int]
     --cores=<n> CORES                  Number of cores to use [default: 2:int]
 '''
 import glob
@@ -22,7 +22,8 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from csv_detective.detection import detect_encoding, detect_separator, detect_headers, parse_table
-from csv_detective.machine_learning.training import train_model2, create_data_matrix, features_cell
+from csv_detective.machine_learning.training import train_model2, create_data_matrix, features_cell, explain_parameters, \
+    explore_features
 from csv_detective.machine_learning import logger
 
 # logger = logging.getLogger()
@@ -34,7 +35,7 @@ def features_wrap(file_path, true_labels, num_rows=10):
     file_labels = true_labels[extract_id(file_path)]
     logger.info("Extracting features from file {}".format(file_path))
     try:
-        features = extract_features(file_path, true_labels=file_labels, num_rows=100)
+        features = extract_features(file_path, true_labels=file_labels, num_rows=num_rows)
         return features
     except Exception as e:
         print("Could not read {}".format(file_path))
@@ -72,6 +73,7 @@ def cols2features(list_files, true_labels, num_rows=10, num_jobs=None):
 
 def load_annotations_ids(tagged_file_path, num_files=None):
     df_annotation = pd.read_csv(tagged_file_path)
+    # df_annotation = df_annotation.sample(frac=1)
     csv_ids = df_annotation.id.unique()
     dict_ids_labels = {}
     if num_files:
@@ -179,5 +181,7 @@ if __name__ == '__main__':
 
     X_all, cell_cv, header_cv, extra_dv = create_data_matrix(list_documents, list_columns_names,
                                                              list_additional_features, list_labels)
-    train_model2(X_all, list_labels)
+    clf = train_model2(X_all, list_labels, [cell_cv, extra_dv])
+    # explore_features("adresse", list_labels, cell_cv, X_all)
+    # explain_parameters(clf=clf, label_id=1, vectorizers=[extra_dv], features_names=list_labels, n_feats=10)
     pass
