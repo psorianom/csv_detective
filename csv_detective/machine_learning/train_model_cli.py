@@ -140,7 +140,7 @@ def extract_features(file_path, true_labels, num_rows=50):
     resource_list = []
     expanded_col_names = []
     for j in range(len(resource_df.columns)):
-        temp_list = resource_df.iloc[:, j].dropna().to_list()
+        temp_list = resource_df.iloc[:, j].dropna().apply(lambda x: x.replace(" ", "")).to_list()
         resource_list.append(temp_list)
         expanded_col_names.extend([resource_df.columns[j].lower()] * len(temp_list))
 
@@ -183,5 +183,5 @@ if __name__ == '__main__':
                                                              list_additional_features, list_labels)
     clf = train_model2(X_all, list_labels, [cell_cv, extra_dv])
     # explore_features("adresse", list_labels, cell_cv, X_all)
-    # explain_parameters(clf=clf, label_id=1, vectorizers=[extra_dv], features_names=list_labels, n_feats=10)
+    explain_parameters(clf=clf, label_id=3, vectorizers=[cell_cv, extra_dv], features_names=list_labels, n_feats=10)
     pass

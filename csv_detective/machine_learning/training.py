@@ -37,8 +37,9 @@ def features_cell(rows, labels):
 
     for i, value in enumerate(rows):
         features = {}
-
+        value = value.replace(" ", "")
         features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
+        # features["single_char"] = 1 if len(value.strip()) == 1 else 0
         if features["is_numeric"]:
             try:
                 numeric_value = int(value)
@@ -47,27 +48,29 @@ def features_cell(rows, labels):
 
             if numeric_value < 0:
                 features["<0"] = 1
-            elif 0 <= numeric_value < 1000:
-                features[">=0<1000"] = 1
+            if 0 <= numeric_value < 2:
+                features[">=0<2"] = 1
+            elif 2 <= numeric_value < 1000:
+                features[">=2<1000"] = 1
             elif 1000 <= numeric_value < 10000:
                 features[">=1k<10k"] = 1
-            elif 10000 <= numeric_value < 100000:
+            elif 10000 <= numeric_value:
                 features[">=10k<100k"] = 1
 
         # "contextual" features
 
-        if i > 0:
-            features["is_numeric-1"] = 1 if rows[i-1].isnumeric() or is_float(rows[i-1]) else 0
-            features["num_chars_-1"] = len(rows[i-1])
-            if i > 1:
-                features["is_numeric-2"] = 1 if rows[i-2].isnumeric() or is_float(rows[i-2]) else 0
-                features["num_chars_-2"] = len(rows[i-2])
-        if i <= len(rows) - 2:
-            features["is_numeric+1"] = 1 if rows[i+1].isnumeric() or is_float(rows[i+1]) else 0
-            features["num_chars_+1"] = len(rows[i+1])
-            if i <= len(rows) - 3:
-                features["is_numeric+2"] = 1 if rows[i+2].isnumeric() or is_float(rows[i+2]) else 0
-                features["num_chars_+2"] = len(rows[i+2])
+        # if i > 0:
+        #     features["is_numeric-1"] = 1 if rows[i-1].isnumeric() or is_float(rows[i-1]) else 0
+        #     features["num_chars_-1"] = len(rows[i-1])
+        #     if i > 1:
+        #         features["is_numeric-2"] = 1 if rows[i-2].isnumeric() or is_float(rows[i-2]) else 0
+        #         features["num_chars_-2"] = len(rows[i-2])
+        # if i <= len(rows) - 2:
+        #     features["is_numeric+1"] = 1 if rows[i+1].isnumeric() or is_float(rows[i+1]) else 0
+        #     features["num_chars_+1"] = len(rows[i+1])
+        #     if i <= len(rows) - 3:
+        #         features["is_numeric+2"] = 1 if rows[i+2].isnumeric() or is_float(rows[i+2]) else 0
+        #         features["num_chars_+2"] = len(rows[i+2])
 
 
 
@@ -85,16 +88,16 @@ def features_cell(rows, labels):
         features["num_numeric"] = sum(1 for c in value if c.isnumeric())
 
         # num alpha
-        # features["num_alpha"] = sum(1 for c in value if c.isalpha())
+        features["num_alpha"] = sum(1 for c in value if c.isalpha())
 
         # num distinct chars
-        # features["num_unique_chars"] = len(set(value))
+        features["num_unique_chars"] = len(set(value))
 
         # num white spaces
-        # features["num_spaces"] = value.count(" ")
+        features["num_spaces"] = value.count(" ")
 
         # num of special chars
-        # features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
+        features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
 
         list_features.append(features)
 
@@ -168,8 +171,6 @@ def show_confusion_matrix(y_true, y_pred, labels):
 
 
 def explain_parameters(clf:LogisticRegression, label_id, vectorizers, features_names, n_feats=10):
-    import seaborn as sns
-    import matplotlib.pylab as plt
 
     if len(vectorizers) > 1:
         features = np.array(vectorizers[0].get_feature_names() + vectorizers[1].get_feature_names())
@@ -191,11 +192,36 @@ def explain_parameters(clf:LogisticRegression, label_id, vectorizers, features_n
     pass
 
 
+def lime_explanation(clf, X_train, X_test, y_train, y_test, feature_names):
+    from lime.lime_tabular import LimeTabularExplainer
+
+    class_names = np.unique(y_train)
+    explainer = LimeTabularExplainer(training_data=X_train.todense(), mode="classification", training_labels=y_train,
+                                     feature_names=feature_names, class_names=class_names,
+                                     discretize_continuous=False)
+    exp = explainer.explain_instance(data_row=X_test[1].A[0], predict_fn=clf.predict_proba,
+                                     num_features=10, labels=[0, 3])
+
+    print('Explanation for class %s' % class_names[0])
+    print('\n'.join(map(str, exp.as_list(label=0))))
+    print()
+    print('Explanation for class %s' % class_names[3])
+    print('\n'.join(map(str, exp.as_list(label=3))))
+
+    pass
+
+
 def train_model2(X, y_true, vectorizers):
+    # Feature selection
+
+
+
     sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
     y_true = np.array(list(y_true))
     indices = list(sss.split(X, y_true))
     train_indices, test_indices = indices[0][0], indices[0][1]
+
+    feature_names = vectorizers[0].get_feature_names() + vectorizers[1].get_feature_names()
 
     X_train, X_test = X[train_indices], X[test_indices]
     y_train, y_test = y_true[train_indices], y_true[test_indices]
@@ -211,7 +237,7 @@ def train_model2(X, y_true, vectorizers):
 
 
 
-
+    lime_explanation(clf, X_train, X_test, y_train, y_test, feature_names)
     print(classification_report(y_true=y_test, y_pred=y_pred))
     # show_confusion_matrix(y_true=y_test, y_pred=y_pred, labels=np.unique(y_true))
     return clf
