@@ -31,12 +31,22 @@ def get_sparsity(matrix):
 
 
 def features_cell2(columns, labels):
-
+    labels = labels
     list_features = []
     is_float = lambda x: x.replace('.','',1).isdigit() and "." in x
     for j, rows in enumerate(columns):
+        numeric_col = np.array([float(f) for f in rows if f.isdigit()], dtype=float)
+        if len(numeric_col):
+            col_average = numeric_col.mean()
+            col_std = numeric_col.std()
         for i, value in enumerate(rows):
-            features = {}
+            # Add column features if existent
+            if len(numeric_col):
+                # features = {"col_average": col_average, "col_std": col_std, "num_unique": len(np.unique(numeric_col))}
+                features = {}
+            else:
+                features = {}
+
             value = value.replace(" ", "")
             features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
             # features["single_char"] = 1 if len(value.strip()) == 1 else 0
@@ -59,18 +69,18 @@ def features_cell2(columns, labels):
 
             # "contextual" features
 
-            # if i > 0:
-            #     features["is_numeric-1"] = 1 if rows[i-1].isnumeric() or is_float(rows[i-1]) else 0
-            #     features["num_chars_-1"] = len(rows[i-1])
-            #     if i > 1:
-            #         features["is_numeric-2"] = 1 if rows[i-2].isnumeric() or is_float(rows[i-2]) else 0
-            #         features["num_chars_-2"] = len(rows[i-2])
-            # if i <= len(rows) - 2:
-            #     features["is_numeric+1"] = 1 if rows[i+1].isnumeric() or is_float(rows[i+1]) else 0
-            #     features["num_chars_+1"] = len(rows[i+1])
-            #     if i <= len(rows) - 3:
-            #         features["is_numeric+2"] = 1 if rows[i+2].isnumeric() or is_float(rows[i+2]) else 0
-            #         features["num_chars_+2"] = len(rows[i+2])
+            if i > 0:
+                features["is_numeric-1"] = 1 if rows[i-1].isnumeric() or is_float(rows[i-1]) else 0
+                features["num_chars_-1"] = len(rows[i-1])
+                if i > 1:
+                    features["is_numeric-2"] = 1 if rows[i-2].isnumeric() or is_float(rows[i-2]) else 0
+                    features["num_chars_-2"] = len(rows[i-2])
+            if i <= len(rows) - 2:
+                features["is_numeric+1"] = 1 if rows[i+1].isnumeric() or is_float(rows[i+1]) else 0
+                features["num_chars_+1"] = len(rows[i+1])
+                if i <= len(rows) - 3:
+                    features["is_numeric+2"] = 1 if rows[i+2].isnumeric() or is_float(rows[i+2]) else 0
+                    features["num_chars_+2"] = len(rows[i+2])
 
 
 
@@ -309,7 +319,7 @@ def train_model2(X, y_true, vectorizers):
     # clf = ExtraTreeClassifier(class_weight="balanced")
     # clf = RandomForestClassifier(n_estimators=200, n_jobs=5, class_weight="balanced_subsample")
 
-    logger.info("Fitting a matrix with shape {}".format(X_train.shape))
+    logger.info("Fitting a matrix with shape {0} and sparsity {1}".format(X_train.shape, get_sparsity(X_train)))
     clf.fit(X_train, y_train)
     y_pred = clf.predict(X_test)
 
