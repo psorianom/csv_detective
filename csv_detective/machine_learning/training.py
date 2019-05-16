@@ -42,8 +42,8 @@ def features_cell2(columns, labels):
         for i, value in enumerate(rows):
             # Add column features if existent
             if len(numeric_col):
-                # features = {"col_average": col_average, "col_std": col_std, "num_unique": len(np.unique(numeric_col))}
-                features = {}
+                features = {"col_average": col_average, "col_std": col_std, "num_unique": len(np.unique(numeric_col))}
+                # features = {}
             else:
                 features = {}
 
