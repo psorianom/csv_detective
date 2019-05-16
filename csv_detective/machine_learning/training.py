@@ -232,8 +232,8 @@ def train_model2(X, y_true, vectorizers):
     y_train, y_test = y_true[train_indices], y_true[test_indices]
 
     # clf = SVC(kernel="linear")
-    clf = LogisticRegression(penalty="l1", multi_class="auto")
-    # clf = MLPClassifier(hidden_layer_sizes=(100,), activation="relu")
+    # clf = LogisticRegression(penalty="l1", multi_class="auto")
+    clf = MLPClassifier(hidden_layer_sizes=(200, 200), activation="relu")
     # clf = ExtraTreeClassifier(class_weight="balanced")
     # clf = RandomForestClassifier(n_estimators=200, n_jobs=5, class_weight="balanced_subsample")
     clf.fit(X_train, y_train)

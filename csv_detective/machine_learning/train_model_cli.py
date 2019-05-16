@@ -131,7 +131,7 @@ def extract_features(file_path, true_labels, num_rows=50):
     '''Returns a dict with information about the csv table and possible
     column contents
     '''
-    csv_df = load_file(file_path, true_labels, num_rows=num_rows)
+    csv_df = load_file(file_path, num_rows=num_rows)
     if csv_df is None:
         return None
 
