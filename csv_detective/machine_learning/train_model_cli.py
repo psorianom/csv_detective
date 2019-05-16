@@ -156,7 +156,8 @@ def extract_features(file_path, true_labels, num_rows=50):
         extended_labels.extend([l] * len(csv_columns_flat_list[i]))
         extended_rows.extend(csv_columns_flat_list[i])
 
-    additional_features = features_cell2(csv_columns_flat_list, true_labels)
+    # additional_features = features_cell2(csv_columns_flat_list, true_labels)
+    additional_features = features_cell(extended_rows, extended_labels)
 
     assert len(extended_rows) == len(extended_labels) == len(extended_col_names) == len(additional_features)
 
