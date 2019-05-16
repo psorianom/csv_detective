@@ -30,6 +30,81 @@ def get_sparsity(matrix):
     return matrix.nnz / (matrix.shape[0] * matrix.shape[1])
 
 
+def features_cell2(columns, labels):
+
+    list_features = []
+    is_float = lambda x: x.replace('.','',1).isdigit() and "." in x
+    for j, rows in enumerate(columns):
+        for i, value in enumerate(rows):
+            features = {}
+            value = value.replace(" ", "")
+            features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
+            # features["single_char"] = 1 if len(value.strip()) == 1 else 0
+            if features["is_numeric"]:
+                try:
+                    numeric_value = int(value)
+                except:
+                    numeric_value = float(value)
+
+                if numeric_value < 0:
+                    features["<0"] = 1
+                if 0 <= numeric_value < 2:
+                    features[">=0<2"] = 1
+                elif 2 <= numeric_value < 1000:
+                    features[">=2<1000"] = 1
+                elif 1000 <= numeric_value < 10000:
+                    features[">=1k<10k"] = 1
+                elif 10000 <= numeric_value:
+                    features[">=10k<100k"] = 1
+
+            # "contextual" features
+
+            # if i > 0:
+            #     features["is_numeric-1"] = 1 if rows[i-1].isnumeric() or is_float(rows[i-1]) else 0
+            #     features["num_chars_-1"] = len(rows[i-1])
+            #     if i > 1:
+            #         features["is_numeric-2"] = 1 if rows[i-2].isnumeric() or is_float(rows[i-2]) else 0
+            #         features["num_chars_-2"] = len(rows[i-2])
+            # if i <= len(rows) - 2:
+            #     features["is_numeric+1"] = 1 if rows[i+1].isnumeric() or is_float(rows[i+1]) else 0
+            #     features["num_chars_+1"] = len(rows[i+1])
+            #     if i <= len(rows) - 3:
+            #         features["is_numeric+2"] = 1 if rows[i+2].isnumeric() or is_float(rows[i+2]) else 0
+            #         features["num_chars_+2"] = len(rows[i+2])
+
+
+
+            # num lowercase
+            features["num_lower"] = sum(1 for c in value if c.islower())
+
+            # num uppercase
+            features["num_upper"] = sum(1 for c in value if c.isupper())
+
+
+            # num chars
+            features["num_chars"] = len(value)
+
+            # num numeric
+            features["num_numeric"] = sum(1 for c in value if c.isnumeric())
+
+            # num alpha
+            features["num_alpha"] = sum(1 for c in value if c.isalpha())
+
+            # num distinct chars
+            features["num_unique_chars"] = len(set(value))
+
+            # num white spaces
+            features["num_spaces"] = value.count(" ")
+
+            # num of special chars
+            features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
+
+            list_features.append(features)
+
+    return list_features
+
+
+
 def features_cell(rows, labels):
 
     list_features = []
@@ -217,9 +292,6 @@ def lime_explanation(clf, X_train, X_test, y_train, y_test, feature_names):
 
 
 def train_model2(X, y_true, vectorizers):
-    # Feature selection
-
-
 
     sss = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
     y_true = np.array(list(y_true))
@@ -232,17 +304,18 @@ def train_model2(X, y_true, vectorizers):
     y_train, y_test = y_true[train_indices], y_true[test_indices]
 
     # clf = SVC(kernel="linear")
-    # clf = LogisticRegression(penalty="l1", multi_class="auto")
-    clf = MLPClassifier(hidden_layer_sizes=(200, 200), activation="relu")
+    clf = LogisticRegression(penalty="l1", multi_class="auto")
+    # clf = MLPClassifier(hidden_layer_sizes=(200, 200), activation="relu")
     # clf = ExtraTreeClassifier(class_weight="balanced")
     # clf = RandomForestClassifier(n_estimators=200, n_jobs=5, class_weight="balanced_subsample")
+
+    logger.info("Fitting a matrix with shape {}".format(X_train.shape))
     clf.fit(X_train, y_train)
-    logger.info("Training with a matrix with shape {}".format(X_train.shape))
     y_pred = clf.predict(X_test)
 
 
 
-    lime_explanation(clf, X_train, X_test, y_train, y_test, feature_names)
+    # lime_explanation(clf, X_train, X_test, y_train, y_test, feature_names)
     print(classification_report(y_true=y_test, y_pred=y_pred))
     # show_confusion_matrix(y_true=y_test, y_pred=y_pred, labels=np.unique(y_true))
     return clf

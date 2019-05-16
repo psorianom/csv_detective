@@ -23,7 +23,7 @@ from tqdm import tqdm
 
 from csv_detective.detection import detect_encoding, detect_separator, detect_headers, parse_table
 from csv_detective.machine_learning.training import train_model2, create_data_matrix, features_cell, explain_parameters, \
-    explore_features
+    explore_features, features_cell2
 from csv_detective.machine_learning import logger
 
 # logger = logging.getLogger()
@@ -138,28 +138,29 @@ def extract_features(file_path, true_labels, num_rows=50):
     assert csv_df.shape[1] == len(true_labels), "Annotated number of columns does not match the number of columns in" \
                                                " file {}".format(file_path)
 
-
-    resource_list = []
-    expanded_col_names = []
+    csv_columns_flat_list = []
+    extended_col_names = []
     for j in range(len(csv_df.columns)):
+        # Get all values of the column j and clean it a little bit
         temp_list = csv_df.iloc[:, j].dropna().apply(lambda x: x.replace(" ", "")).to_list()
-        resource_list.append(temp_list)
-        expanded_col_names.extend([csv_df.columns[j].lower()] * len(temp_list))
+        csv_columns_flat_list.append(temp_list)
+        extended_col_names.extend([csv_df.columns[j].lower()] * len(temp_list))
 
-    assert len(resource_list) == len(true_labels)  # Assert we have the same number of annotated columns and columns
+    assert len(csv_columns_flat_list) == len(true_labels)  # Assert we have the same number of annotated columns and columns
 
-    expanded_labels = []
-    expanded_rows = []
+    extended_labels = []
+    extended_rows = []
 
+    # Get both lists of labels and values-per-column in a single flat huge list
     for i, l in enumerate(true_labels):
-        expanded_labels.extend([l] * len(resource_list[i]))
-        expanded_rows.extend(resource_list[i])
+        extended_labels.extend([l] * len(csv_columns_flat_list[i]))
+        extended_rows.extend(csv_columns_flat_list[i])
 
-    additional_features = features_cell(expanded_rows, expanded_labels)
+    additional_features = features_cell2(csv_columns_flat_list, extended_labels)
 
-    assert len(expanded_rows) == len(expanded_labels) == len(expanded_col_names) == len(additional_features)
+    assert len(extended_rows) == len(extended_labels) == len(extended_col_names) == len(additional_features)
 
-    return expanded_rows, expanded_labels, expanded_col_names, additional_features
+    return extended_rows, extended_labels, extended_col_names, additional_features
 
 
 if __name__ == '__main__':
