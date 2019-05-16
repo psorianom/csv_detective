@@ -199,8 +199,13 @@ def lime_explanation(clf, X_train, X_test, y_train, y_test, feature_names):
     explainer = LimeTabularExplainer(training_data=X_train.todense(), mode="classification", training_labels=y_train,
                                      feature_names=feature_names, class_names=class_names,
                                      discretize_continuous=False)
-    exp = explainer.explain_instance(data_row=X_test[1].A[0], predict_fn=clf.predict_proba,
-                                     num_features=10, labels=[0, 3])
+
+    bools_ids = np.where(y_test == "booleen")[0]
+
+
+    print(bools_ids[0])
+    exp = explainer.explain_instance(data_row=X_test[bools_ids[0]].A[0], predict_fn=clf.predict_proba,
+                                     num_features=6, labels=[0, 3])
 
     print('Explanation for class %s' % class_names[0])
     print('\n'.join(map(str, exp.as_list(label=0))))

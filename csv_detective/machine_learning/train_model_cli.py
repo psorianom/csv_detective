@@ -95,7 +95,7 @@ def create_list_files(csv_folder, list_resources_ids):
     return csv_paths
 
 
-def load_file(file_path, true_labels, num_rows=50):
+def load_file(file_path, num_rows=50):
     with open(file_path, mode='rb') as binary_file:
         encoding = detect_encoding(binary_file)['encoding']
 
@@ -123,8 +123,7 @@ def load_file(file_path, true_labels, num_rows=50):
         print("Could not read {}".format(file_path))
         return
 
-    assert table.shape[1] == len(true_labels), "Annotated number of columns does not match the number of columns in" \
-                                               " file {}".format(file_path)
+
     return table
 
 
@@ -132,17 +131,20 @@ def extract_features(file_path, true_labels, num_rows=50):
     '''Returns a dict with information about the csv table and possible
     column contents
     '''
-    resource_df = load_file(file_path, true_labels, num_rows=num_rows)
-
-    if resource_df is None:
+    csv_df = load_file(file_path, true_labels, num_rows=num_rows)
+    if csv_df is None:
         return None
+
+    assert csv_df.shape[1] == len(true_labels), "Annotated number of columns does not match the number of columns in" \
+                                               " file {}".format(file_path)
+
 
     resource_list = []
     expanded_col_names = []
-    for j in range(len(resource_df.columns)):
-        temp_list = resource_df.iloc[:, j].dropna().apply(lambda x: x.replace(" ", "")).to_list()
+    for j in range(len(csv_df.columns)):
+        temp_list = csv_df.iloc[:, j].dropna().apply(lambda x: x.replace(" ", "")).to_list()
         resource_list.append(temp_list)
-        expanded_col_names.extend([resource_df.columns[j].lower()] * len(temp_list))
+        expanded_col_names.extend([csv_df.columns[j].lower()] * len(temp_list))
 
     assert len(resource_list) == len(true_labels)  # Assert we have the same number of annotated columns and columns
 
@@ -183,5 +185,5 @@ if __name__ == '__main__':
                                                              list_additional_features, list_labels)
     clf = train_model2(X_all, list_labels, [cell_cv, extra_dv])
     # explore_features("adresse", list_labels, cell_cv, X_all)
-    explain_parameters(clf=clf, label_id=3, vectorizers=[cell_cv, extra_dv], features_names=list_labels, n_feats=10)
+    # explain_parameters(clf=clf, label_id=3, vectorizers=[cell_cv, extra_dv], features_names=list_labels, n_feats=10)
     pass
