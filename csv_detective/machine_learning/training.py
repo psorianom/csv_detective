@@ -315,7 +315,7 @@ def train_model2(X, y_true, vectorizers):
 
     # clf = SVC(kernel="linear")
     # clf = LogisticRegression(multi_class="ovr", n_jobs=-1, solver="lbfgs")
-    clf = MLPClassifier(hidden_layer_sizes=(200, 200), activation="relu")
+    clf = MLPClassifier(hidden_layer_sizes=(100, 100), activation="relu")
     # clf = ExtraTreeClassifier(class_weight="balanced")
     # clf = RandomForestClassifier(n_estimators=200, n_jobs=5, class_weight="balanced_subsample")
 
