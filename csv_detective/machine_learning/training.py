@@ -12,6 +12,7 @@ from collections import Counter
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.feature_selection import RFE
 from sklearn.linear_model import LogisticRegression
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import classification_report, confusion_matrix
@@ -36,18 +37,27 @@ def features_cell2(columns, labels):
     is_float = lambda x: x.replace('.','',1).isdigit() and "." in x
     for j, rows in enumerate(columns):
         numeric_col = np.array([float(f) for f in rows if f.isdigit()], dtype=float)
-        if len(numeric_col):
-            col_average = numeric_col.mean()
-            col_std = numeric_col.std()
+
         for i, value in enumerate(rows):
             # Add column features if existent
             if len(numeric_col):
-                features = {"col_average": col_average, "col_std": col_std, "num_unique": len(np.unique(numeric_col))}
-                # features = {}
+                features = {"num_unique": len(np.unique(numeric_col)),
+                            "col_sum": 1 if sum(numeric_col) < len(numeric_col) else 0}
+
             else:
                 features = {}
 
-            value = value.replace(" ", "")
+
+            # if j > 0:
+            #     # features[str(hash(labels[j - 1]) % (10 ** 5))] = 1
+            #     # previous_column_hash
+            #     features[str(hash("".join(columns[j - 1])) % (10 ** 3))] = 1
+            # elif j + 1 < len(columns):
+            # #     features[str(hash(labels[j + 1]) % (10 ** 5))] = 1
+            #     features[str(hash("".join(columns[j + 1])) % (10 ** 3))] = 1
+
+            features[str(hash("".join(columns[j])) % (10 ** 3))] = 1
+
             features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
             # features["single_char"] = 1 if len(value.strip()) == 1 else 0
             if features["is_numeric"]:
@@ -60,8 +70,10 @@ def features_cell2(columns, labels):
                     features["<0"] = 1
                 if 0 <= numeric_value < 2:
                     features[">=0<2"] = 1
-                elif 2 <= numeric_value < 1000:
-                    features[">=2<1000"] = 1
+                elif 2 <= numeric_value < 500:
+                    features[">=2<500"] = 1
+                elif 500 <= numeric_value < 1000:
+                    features[">=500<1000"] = 1
                 elif 1000 <= numeric_value < 10000:
                     features[">=1k<10k"] = 1
                 elif 10000 <= numeric_value:
@@ -69,18 +81,18 @@ def features_cell2(columns, labels):
 
             # "contextual" features
 
-            if i > 0:
-                features["is_numeric-1"] = 1 if rows[i-1].isnumeric() or is_float(rows[i-1]) else 0
-                features["num_chars_-1"] = len(rows[i-1])
-                if i > 1:
-                    features["is_numeric-2"] = 1 if rows[i-2].isnumeric() or is_float(rows[i-2]) else 0
-                    features["num_chars_-2"] = len(rows[i-2])
-            if i <= len(rows) - 2:
-                features["is_numeric+1"] = 1 if rows[i+1].isnumeric() or is_float(rows[i+1]) else 0
-                features["num_chars_+1"] = len(rows[i+1])
-                if i <= len(rows) - 3:
-                    features["is_numeric+2"] = 1 if rows[i+2].isnumeric() or is_float(rows[i+2]) else 0
-                    features["num_chars_+2"] = len(rows[i+2])
+            # if i > 0:
+            #     features["is_numeric-1"] = 1 if rows[i-1].isnumeric() or is_float(rows[i-1]) else 0
+            #     features["num_chars_-1"] = len(rows[i-1])
+            #     if i > 1:
+            #         features["is_numeric-2"] = 1 if rows[i-2].isnumeric() or is_float(rows[i-2]) else 0
+            #         features["num_chars_-2"] = len(rows[i-2])
+            # if i <= len(rows) - 2:
+            #     features["is_numeric+1"] = 1 if rows[i+1].isnumeric() or is_float(rows[i+1]) else 0
+            #     features["num_chars_+1"] = len(rows[i+1])
+            #     if i <= len(rows) - 3:
+            #         features["is_numeric+2"] = 1 if rows[i+2].isnumeric() or is_float(rows[i+2]) else 0
+            #         features["num_chars_+2"] = len(rows[i+2])
 
 
 
@@ -104,7 +116,7 @@ def features_cell2(columns, labels):
             features["num_unique_chars"] = len(set(value))
 
             # num white spaces
-            features["num_spaces"] = value.count(" ")
+            # features["num_spaces"] = value.count(" ")
 
             # num of special chars
             features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
@@ -308,19 +320,25 @@ def train_model2(X, y_true, vectorizers):
     indices = list(sss.split(X, y_true))
     train_indices, test_indices = indices[0][0], indices[0][1]
 
-    feature_names = vectorizers[0].get_feature_names() + vectorizers[1].get_feature_names()
+    feature_names = vectorizers[0].get_feature_names()# + vectorizers[1].get_feature_names()
 
     X_train, X_test = X[train_indices], X[test_indices]
     y_train, y_test = y_true[train_indices], y_true[test_indices]
 
     # clf = SVC(kernel="linear")
-    # clf = LogisticRegression(multi_class="ovr", n_jobs=-1, solver="lbfgs")
-    clf = MLPClassifier(hidden_layer_sizes=(100, 100), activation="relu")
+    clf = LogisticRegression(multi_class="ovr", n_jobs=-1, solver="lbfgs")
+    # clf = MLPClassifier(hidden_layer_sizes=(100, 100), activation="relu")
     # clf = ExtraTreeClassifier(class_weight="balanced")
     # clf = RandomForestClassifier(n_estimators=200, n_jobs=5, class_weight="balanced_subsample")
 
+    # rfe = RFE(estimator=clf, n_features_to_select=1, step=1)
+    # rfe.fit(X_train, y_train)
+
+
     logger.info("Fitting a matrix with shape {0} and sparsity {1}".format(X_train.shape, get_sparsity(X_train)))
     clf.fit(X_train, y_train)
+    # print(rfe.ranking_)
+
     y_pred = clf.predict(X_test)
 
 
@@ -365,7 +383,7 @@ def create_data_matrix(documents, columns_names, extra_features, labels):
 
     # all_features = cell_cv.get_feature_names() + extra_dv.get_feature_names()
 
-    X_all = hstack([X_cell, X_extra], format="csr")
+    X_all = hstack([X_extra], format="csr")
 
     logger.info("Built a matrix with shape {}".format(X_all.shape))
 

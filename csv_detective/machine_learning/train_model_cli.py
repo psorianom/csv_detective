@@ -156,8 +156,8 @@ def extract_features(file_path, true_labels, num_rows=50):
         extended_labels.extend([l] * len(csv_columns_flat_list[i]))
         extended_rows.extend(csv_columns_flat_list[i])
 
-    # additional_features = features_cell2(csv_columns_flat_list, true_labels)
-    additional_features = features_cell(extended_rows, extended_labels)
+    additional_features = features_cell2(csv_columns_flat_list, true_labels)
+    # additional_features = features_cell(extended_rows, extended_labels)
 
     assert len(extended_rows) == len(extended_labels) == len(extended_col_names) == len(additional_features)
 
@@ -185,7 +185,7 @@ if __name__ == '__main__':
 
     X_all, cell_cv, header_cv, extra_dv = create_data_matrix(list_documents, list_columns_names,
                                                              list_additional_features, list_labels)
-    clf = train_model2(X_all, list_labels, [cell_cv, extra_dv])
+    clf = train_model2(X_all, list_labels, [extra_dv])
     # explore_features("adresse", list_labels, cell_cv, X_all)
     # explain_parameters(clf=clf, label_id=3, vectorizers=[cell_cv, extra_dv], features_names=list_labels, n_feats=10)
     pass
