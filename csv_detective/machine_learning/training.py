@@ -55,8 +55,9 @@ def features_cell2(columns, labels):
             # elif j + 1 < len(columns):
             # #     features[str(hash(labels[j + 1]) % (10 ** 5))] = 1
             #     features[str(hash("".join(columns[j + 1])) % (10 ** 3))] = 1
-
-            features[str(hash("".join(columns[j])) % (10 ** 3))] = 1
+            columns_copy = columns[j][:]
+            np.random.shuffle(columns_copy)
+            features[str(hash("".join(columns_copy)) % (10 ** 3))] = 1
 
             features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
             # features["single_char"] = 1 if len(value.strip()) == 1 else 0
@@ -78,23 +79,6 @@ def features_cell2(columns, labels):
                     features[">=1k<10k"] = 1
                 elif 10000 <= numeric_value:
                     features[">=10k<100k"] = 1
-
-            # "contextual" features
-
-            # if i > 0:
-            #     features["is_numeric-1"] = 1 if rows[i-1].isnumeric() or is_float(rows[i-1]) else 0
-            #     features["num_chars_-1"] = len(rows[i-1])
-            #     if i > 1:
-            #         features["is_numeric-2"] = 1 if rows[i-2].isnumeric() or is_float(rows[i-2]) else 0
-            #         features["num_chars_-2"] = len(rows[i-2])
-            # if i <= len(rows) - 2:
-            #     features["is_numeric+1"] = 1 if rows[i+1].isnumeric() or is_float(rows[i+1]) else 0
-            #     features["num_chars_+1"] = len(rows[i+1])
-            #     if i <= len(rows) - 3:
-            #         features["is_numeric+2"] = 1 if rows[i+2].isnumeric() or is_float(rows[i+2]) else 0
-            #         features["num_chars_+2"] = len(rows[i+2])
-
-
 
             # num lowercase
             features["num_lower"] = sum(1 for c in value if c.islower())
