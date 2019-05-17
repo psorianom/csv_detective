@@ -31,21 +31,23 @@ def get_sparsity(matrix):
     return matrix.nnz / (matrix.shape[0] * matrix.shape[1])
 
 
-def features_cell2(columns, labels):
+def extra_features(columns, labels):
     labels = labels
     list_features = []
     is_float = lambda x: x.replace('.','',1).isdigit() and "." in x
     for j, rows in enumerate(columns):
-        numeric_col = np.array([float(f) for f in rows if f.isdigit()], dtype=float)
+        # numeric_col = np.array([float(f) for f in rows if f.isdigit()], dtype=float)
 
         for i, value in enumerate(rows):
             # Add column features if existent
-            if len(numeric_col):
-                features = {"num_unique": len(np.unique(numeric_col)),
-                            "col_sum": 1 if sum(numeric_col) < len(numeric_col) else 0}
-
-            else:
-                features = {}
+            # if len(numeric_col):
+            #     features = {"num_unique": len(np.unique(numeric_col)),
+            #                 "col_sum": 1 if sum(numeric_col) < len(numeric_col) else 0}
+            #
+            # else:
+            #     features = {}
+            #
+            features = {}
 
 
             # if j > 0:
@@ -56,54 +58,55 @@ def features_cell2(columns, labels):
             # #     features[str(hash(labels[j + 1]) % (10 ** 5))] = 1
             #     features[str(hash("".join(columns[j + 1])) % (10 ** 3))] = 1
             columns_copy = columns[j][:]
-            np.random.shuffle(columns_copy)
-            features[str(hash("".join(columns_copy)) % (10 ** 3))] = 1
-
-            features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
-            # features["single_char"] = 1 if len(value.strip()) == 1 else 0
-            if features["is_numeric"]:
-                try:
-                    numeric_value = int(value)
-                except:
-                    numeric_value = float(value)
-
-                if numeric_value < 0:
-                    features["<0"] = 1
-                if 0 <= numeric_value < 2:
-                    features[">=0<2"] = 1
-                elif 2 <= numeric_value < 500:
-                    features[">=2<500"] = 1
-                elif 500 <= numeric_value < 1000:
-                    features[">=500<1000"] = 1
-                elif 1000 <= numeric_value < 10000:
-                    features[">=1k<10k"] = 1
-                elif 10000 <= numeric_value:
-                    features[">=10k<100k"] = 1
-
-            # num lowercase
-            features["num_lower"] = sum(1 for c in value if c.islower())
-
-            # num uppercase
-            features["num_upper"] = sum(1 for c in value if c.isupper())
+            # np.random.shuffle(columns_copy)
+            features[str(hash("".join(columns_copy)) % (10 ** 5))] = 1
 
 
-            # num chars
-            features["num_chars"] = len(value)
-
-            # num numeric
-            features["num_numeric"] = sum(1 for c in value if c.isnumeric())
-
-            # num alpha
-            features["num_alpha"] = sum(1 for c in value if c.isalpha())
-
-            # num distinct chars
-            features["num_unique_chars"] = len(set(value))
-
-            # num white spaces
-            # features["num_spaces"] = value.count(" ")
-
-            # num of special chars
-            features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
+            # features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
+            # # features["single_char"] = 1 if len(value.strip()) == 1 else 0
+            # if features["is_numeric"]:
+            #     try:
+            #         numeric_value = int(value)
+            #     except:
+            #         numeric_value = float(value)
+            #
+            #     if numeric_value < 0:
+            #         features["<0"] = 1
+            #     if 0 <= numeric_value < 2:
+            #         features[">=0<2"] = 1
+            #     elif 2 <= numeric_value < 500:
+            #         features[">=2<500"] = 1
+            #     elif 500 <= numeric_value < 1000:
+            #         features[">=500<1000"] = 1
+            #     elif 1000 <= numeric_value < 10000:
+            #         features[">=1k<10k"] = 1
+            #     elif 10000 <= numeric_value:
+            #         features[">=10k<100k"] = 1
+            #
+            # # num lowercase
+            # features["num_lower"] = sum(1 for c in value if c.islower())
+            #
+            # # num uppercase
+            # features["num_upper"] = sum(1 for c in value if c.isupper())
+            #
+            #
+            # # num chars
+            # features["num_chars"] = len(value)
+            #
+            # # num numeric
+            # features["num_numeric"] = sum(1 for c in value if c.isnumeric())
+            #
+            # # num alpha
+            # features["num_alpha"] = sum(1 for c in value if c.isalpha())
+            #
+            # # num distinct chars
+            # features["num_unique_chars"] = len(set(value))
+            #
+            # # num white spaces
+            # # features["num_spaces"] = value.count(" ")
+            #
+            # # num of special chars
+            # features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
 
             list_features.append(features)
 

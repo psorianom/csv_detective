@@ -23,7 +23,7 @@ from tqdm import tqdm
 
 from csv_detective.detection import detect_encoding, detect_separator, detect_headers, parse_table
 from csv_detective.machine_learning.training import train_model2, create_data_matrix, features_cell, explain_parameters, \
-    explore_features, features_cell2
+    explore_features, extra_features
 from csv_detective.machine_learning import logger
 
 # logger = logging.getLogger()
@@ -156,7 +156,7 @@ def extract_features(file_path, true_labels, num_rows=50):
         extended_labels.extend([l] * len(csv_columns_flat_list[i]))
         extended_rows.extend(csv_columns_flat_list[i])
 
-    additional_features = features_cell2(csv_columns_flat_list, true_labels)
+    additional_features = extra_features(csv_columns_flat_list, true_labels)
     # additional_features = features_cell(extended_rows, extended_labels)
 
     assert len(extended_rows) == len(extended_labels) == len(extended_col_names) == len(additional_features)
