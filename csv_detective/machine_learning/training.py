@@ -329,10 +329,10 @@ def train_model2(X, y_true, vectorizers):
 
 
     logger.info("Fitting a matrix with shape {0} and sparsity {1}".format(X_train.shape, get_sparsity(X_train)))
-    clf.fit(X_train.toarray(), y_train)
+    clf.fit(X_train, y_train)
     # print(rfe.ranking_)
 
-    y_pred = clf.predict(X_test.toarray())
+    y_pred = clf.predict(X_test)
 
 
 
