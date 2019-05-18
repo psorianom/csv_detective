@@ -21,14 +21,13 @@ from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.tree import ExtraTreeClassifier
 from sklearn.svm import SVC
 from scipy.sparse import vstack, hstack
+from xgboost import XGBClassifier
 
 from csv_detective.machine_learning import logger
 
 import numpy as np
 import pandas as pd
 
-from sklearn.experimental import enable_hist_gradient_boosting  # noqa
-from sklearn.ensemble import HistGradientBoostingClassifier
 
 
 def get_sparsity(matrix):
@@ -53,18 +52,19 @@ def extra_features(columns, labels):
             #
             # features = {}
 
-
             # if j > 0:
-            #     # features[str(hash(labels[j - 1]) % (10 ** 5))] = 1
-            #     # previous_column_hash
-            #     features[str(hash("".join(random.shuffle(columns[j - 1]))) % (10 ** 3))] = 1
+            #     column_prev = columns[j - 1][:]
+            #     # np.random.shuffle(column_prev)
+            #     features[str(hash("".join(column_prev)) % (10 ** 2))] = 1
             # elif j + 1 < len(columns):
-            # #     features[str(hash(labels[j + 1]) % (10 ** 5))] = 1
-            #     features[str(hash("".join(random.shuffle(columns[j + 1]))) % (10 ** 3))] = 1
+            #     column_next = columns[j + 1][:]
+            #     # np.random.shuffle(column_next)
+            #     features[str(hash("".join(column_next)) % (10 ** 2))] = 1
 
             columns_copy = columns[j][:]
-            random.shuffle(columns_copy)
-            features[str(hash("".join(columns_copy)) % (10 ** 3))] = 1
+            np.random.shuffle(columns_copy)
+
+            # features[str(hash("".join(columns_copy)) % (10 ** 3))] = 1
 
             features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
             # features["single_char"] = 1 if len(value.strip()) == 1 else 0
@@ -319,8 +319,9 @@ def train_model2(X, y_true, vectorizers):
     # clf = SVC(kernel="linear")
     # clf = LogisticRegression(multi_class="ovr", n_jobs=-1, solver="lbfgs")
     # clf = HistGradientBoostingClassifier()
-    clf = MLPClassifier(hidden_layer_sizes=(100, 100), activation="relu")
+    # clf = MLPClassifier(hidden_layer_sizes=(100, 100), activation="relu")
     # clf = ExtraTreeClassifier(class_weight="balanced")
+    clf = XGBClassifier(n_jobs=5)
     # clf = RandomForestClassifier(n_estimators=200, n_jobs=5, class_weight="balanced_subsample")
     # clf = SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, random_state=42, max_iter=5, tol=None)
 
@@ -376,7 +377,7 @@ def create_data_matrix(documents, columns_names, extra_features, labels):
 
     # all_features = cell_cv.get_feature_names() + extra_dv.get_feature_names()
 
-    X_all = hstack([X_extra, X_cell], format="csr")
+    X_all = hstack([X_extra], format="csr")
 
     logger.info("Built a matrix with shape {}".format(X_all.shape))
 
