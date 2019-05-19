@@ -1,6 +1,7 @@
 import os
 import string
 from collections import defaultdict
+from itertools import chain
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,7 @@ from sklearn.pipeline import Pipeline, FeatureUnion
 from tqdm import tqdm
 
 from csv_detective.detection import detect_encoding, detect_separator, detect_headers, parse_table
+from csv_detective.machine_learning import logger
 
 
 class ItemSelector(BaseEstimator, TransformerMixin):
@@ -63,17 +65,18 @@ class ColumnInfoExtractor(BaseEstimator, TransformerMixin):
     `subject` and `body`.
     """
 
-    def __init__(self, n_files=None, n_rows=200, n_jobs=1, save_dataset=False):
+    def __init__(self, n_files=None, n_rows=200, n_jobs=1, train_size=0.7, save_dataset=False):
 
         self.n_rows = n_rows
         self.n_files = n_files
         self.n_jobs = n_jobs
         self.save_dataset = save_dataset
+        self.train_size = train_size
 
     def fit(self, X, y=None):
         return self
 
-    def _load_file(self, file_path):
+    def _load_file(self, file_path, n_rows):
         with open(file_path, mode='rb') as binary_file:
             encoding = detect_encoding(binary_file)['encoding']
 
@@ -93,7 +96,7 @@ class ColumnInfoExtractor(BaseEstimator, TransformerMixin):
             encoding,
             sep,
             header_row_idx,
-            self.n_rows,
+            n_rows,
             random_state=42
         )
 
@@ -127,7 +130,7 @@ class ColumnInfoExtractor(BaseEstimator, TransformerMixin):
         csv_id = os.path.basename(file_path)[:-4]
         file_labels = self._dict_ids_labels[csv_id]
 
-        csv_df = self._load_file(file_path=file_path)
+        csv_df = self._load_file(file_path=file_path, n_rows=self.n_rows)
 
         if csv_df is None:
             return None
@@ -138,27 +141,33 @@ class ColumnInfoExtractor(BaseEstimator, TransformerMixin):
                   "(more or less columns found in the annotation file).".format(file_path))
             return
 
-        file_columns = []
-        columns_names = []
-        for j in range(len(csv_df.columns)):
-            # Get all values of the column j and clean it a little bit
-            temp_list = csv_df.iloc[:, j].dropna().apply(lambda x: x.replace(" ", "")).to_list()
-            file_columns.append(temp_list)
-            columns_names.extend([csv_df.columns[j].lower()] * len(temp_list))
+        df_idx = np.arange(len(csv_df))
+        train_idx = np.random.choice(df_idx, size=int(len(df_idx) * self.train_size), replace=False)
+        test_idx = np.setdiff1d(df_idx, train_idx)
+        dataset_type = {"train": csv_df.iloc[train_idx], "test": csv_df.iloc[test_idx]}
+        datasets_info = {}
+        for ds_type, df in dataset_type.items():
+            file_columns = []
+            columns_names = []
+            for j in range(len(df.columns)):
+                # Get all values of the column j and clean it a little bit
+                temp_list = df.iloc[:, j].dropna().apply(lambda x: x.replace(" ", "")).to_list()
+                file_columns.append(temp_list)
+                columns_names.extend([df.columns[j].lower()] * len(temp_list))
 
-        assert len(file_columns) == len(file_labels)  # Assert we have the same number of annotated columns and columns
+            rows_labels = []
+            rows_values = []
 
-        rows_labels = []
-        rows_values = []
+            # Get both lists of labels and values-per-column in a single flat huge list
+            for i, l in enumerate(file_labels):
+                rows_labels.extend([l] * len(file_columns[i]))
+                rows_values.extend(file_columns[i])
 
-        # Get both lists of labels and values-per-column in a single flat huge list
-        for i, l in enumerate(file_labels):
-            rows_labels.extend([l] * len(file_columns[i]))
-            rows_values.extend(file_columns[i])
+            assert len(rows_values) == len(rows_labels) == len(columns_names)
+            datasets_info[ds_type] = {"all_columns": rows_values, "y": rows_labels, "all_headers": columns_names,
+                                      "per_file_labels": [file_labels], "per_file_rows": [file_columns]}
 
-        assert len(rows_values) == len(rows_labels) == len(columns_names)
-        return {"all_columns": rows_values, "y": rows_labels, "all_headers": columns_names,
-                "per_file_labels": [file_labels], "per_file_rows": [file_columns]}
+        return datasets_info
 
     def _extract_columns_selector(self, csv_folder):
         list_files = ["{0}/{1}.csv".format(csv_folder, resource_id) for resource_id in sorted(self._dict_ids_labels)]
@@ -171,19 +180,23 @@ class ColumnInfoExtractor(BaseEstimator, TransformerMixin):
             csv_info = [self._extract_columns(f)
                         for f in tqdm(list_files)]
 
-        csv_info = [d for d in csv_info if d]
-        csv_info_items = defaultdict(list)
-        for csv_dict in csv_info:
-            for k, v in csv_dict.items():
-                csv_info_items[k].extend(v)
+        dataset_items = defaultdict(lambda: defaultdict(list))
+        for datasets in csv_info:
+            if not datasets:
+                continue
+            for ds_type in ["train", "test"]:
+                for k, v in datasets[ds_type].items():
+                    if not v:
+                        continue
+                    dataset_items[ds_type][k].extend(v)
 
         if self.save_dataset:
-            dataset_df = pd.DataFrame({"rows_values": csv_info_items["all_columns"],
-                                       "rows_labels": csv_info_items["y"], "columns_names": csv_info_items["all_headers"]})
-            dataset_df.to_csv("csv_detective/machine_learning/data/out/per_line_dataset.csv", index=False)
+            import json
+            with open("{0}_{1}rows.json".format("./csv_detective/machine_learning/data/out/dataset",
+                                               self.n_rows), "w") as filo:
+                json.dump(dataset_items, filo)
 
-
-        return csv_info_items
+        return dataset_items["train"], dataset_items["test"]
 
     def transform(self, annotations_file, csv_folder):
         self._load_annotations_info(annotations_file)
@@ -210,13 +223,14 @@ class CustomFeatures(BaseEstimator, TransformerMixin):
         """
         if self.n_jobs and self.n_jobs > 1:
             features = Parallel(n_jobs=self.n_jobs)(
-                delayed(self._extract_custom_features)(file_path, self._dict_ids_labels)
+                delayed(self._extract_custom_features)(file_path)
                 for file_path in tqdm(rows_values))
         else:
             features = [self._extract_custom_features(f)
                         for f in tqdm(rows_values)]
 
         features = [d for d in features if d]
+        features = list(chain.from_iterable(features))
         return features
 
     def _extract_custom_features(self, rows_values):
@@ -224,69 +238,80 @@ class CustomFeatures(BaseEstimator, TransformerMixin):
 
         def is_float(x):
             return x.replace('.', '', 1).isdigit() and "." in x
+        for j, rows in enumerate(rows_values):
+            numeric_col = np.array([float(f) for f in rows if f.isdigit()], dtype=float)
+            for i, value in enumerate(rows):
+                # Add column features if existent
+                if len(numeric_col):
+                    features = {"num_unique": len(np.unique(numeric_col)),
+                                "col_sum": 1 if sum(numeric_col) < len(numeric_col) else 0}
 
-        for i, value in enumerate(rows_values):
-            features = {}
-            value = value.replace(" ", "")
-            features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
-            # features["single_char"] = 1 if len(value.strip()) == 1 else 0
-            if features["is_numeric"]:
-                try:
-                    numeric_value = int(value)
-                except Exception as e:
-                    numeric_value = float(value)
+                else:
+                    features = {}
+                #
+                # features = {}
 
-                if numeric_value < 0:
-                    features["<0"] = 1
-                if 0 <= numeric_value < 2:
-                    features[">=0<2"] = 1
-                elif 2 <= numeric_value < 1000:
-                    features[">=2<1000"] = 1
-                elif 1000 <= numeric_value < 10000:
-                    features[">=1k<10k"] = 1
-                elif 10000 <= numeric_value:
-                    features[">=10k<100k"] = 1
+                # if j > 0:
+                #     column_prev = columns[j - 1][:]
+                #     # np.random.shuffle(column_prev)
+                #     features[str(hash("".join(column_prev)) % (10 ** 2))] = 1
+                # elif j + 1 < len(columns):
+                #     column_next = columns[j + 1][:]
+                #     # np.random.shuffle(column_next)
+                #     features[str(hash("".join(column_next)) % (10 ** 2))] = 1
 
-            # "contextual" features
+                columns_copy = rows_values[j][:]
+                np.random.shuffle(columns_copy)
 
-            # if i > 0:
-            #     features["is_numeric-1"] = 1 if rows[i-1].isnumeric() or is_float(rows[i-1]) else 0
-            #     features["num_chars_-1"] = len(rows[i-1])
-            #     if i > 1:
-            #         features["is_numeric-2"] = 1 if rows[i-2].isnumeric() or is_float(rows[i-2]) else 0
-            #         features["num_chars_-2"] = len(rows[i-2])
-            # if i <= len(rows) - 2:
-            #     features["is_numeric+1"] = 1 if rows[i+1].isnumeric() or is_float(rows[i+1]) else 0
-            #     features["num_chars_+1"] = len(rows[i+1])
-            #     if i <= len(rows) - 3:
-            #         features["is_numeric+2"] = 1 if rows[i+2].isnumeric() or is_float(rows[i+2]) else 0
-            #         features["num_chars_+2"] = len(rows[i+2])
+                # features[str(hash("".join(columns_copy)) % (10 ** 3))] = 1
 
-            # num lowercase
-            features["num_lower"] = sum(1 for c in value if c.islower())
+                features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
+                # features["single_char"] = 1 if len(value.strip()) == 1 else 0
+                if features["is_numeric"]:
+                    try:
+                        numeric_value = int(value)
+                    except:
+                        numeric_value = float(value)
 
-            # num uppercase
-            features["num_upper"] = sum(1 for c in value if c.isupper())
+                    if numeric_value < 0:
+                        features["<0"] = 1
+                    if 0 <= numeric_value < 2:
+                        features[">=0<2"] = 1
+                    elif 2 <= numeric_value < 500:
+                        features[">=2<500"] = 1
+                    elif 500 <= numeric_value < 1000:
+                        features[">=500<1000"] = 1
+                    elif 1000 <= numeric_value < 10000:
+                        features[">=1k<10k"] = 1
+                    elif 10000 <= numeric_value:
+                        features[">=10k<100k"] = 1
 
-            # num chars
-            features["num_chars"] = len(value)
+                # num lowercase
+                features["num_lower"] = sum(1 for c in value if c.islower())
 
-            # num numeric
-            features["num_numeric"] = sum(1 for c in value if c.isnumeric())
+                # num uppercase
+                features["num_upper"] = sum(1 for c in value if c.isupper())
 
-            # num alpha
-            features["num_alpha"] = sum(1 for c in value if c.isalpha())
 
-            # num distinct chars
-            features["num_unique_chars"] = len(set(value))
+                # num chars
+                features["num_chars"] = len(value)
 
-            # num white spaces
-            features["num_spaces"] = value.count(" ")
+                # num numeric
+                features["num_numeric"] = sum(1 for c in value if c.isnumeric())
 
-            # num of special chars
-            features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
+                # num alpha
+                features["num_alpha"] = sum(1 for c in value if c.isalpha())
 
-            list_features.append(features)
+                # num distinct chars
+                features["num_unique_chars"] = len(set(value))
+
+                # num white spaces
+                # features["num_spaces"] = value.count(" ")
+
+                # num of special chars
+                features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
+
+                list_features.append(features)
 
         return list_features
 
@@ -295,17 +320,13 @@ class CustomFeatures(BaseEstimator, TransformerMixin):
 
 
 if __name__ == '__main__':
-    annotations_file_train = "path-to-annotations-train"
-    annotations_file_test = "path-to-annotations-test"
-    csv_folder = "folder-of-csvs"
-    train = ColumnInfoExtractor(n_files=100, n_rows=200, n_jobs=10).transform(annotations_file=annotations_file_train,
+    annotations_file = "/media/stuff/Pavel/Documents/Eclipse/workspace/csv_detective/csv_detective/machine_learning/data/columns_annotation.csv"
+    csv_folder = "/data/datagouv/csv_top/"
+    train, test = ColumnInfoExtractor(n_files=100, n_rows=200, train_size=.7, n_jobs=5).transform(annotations_file=annotations_file,
                                                                               csv_folder=csv_folder)
-    test = ColumnInfoExtractor(n_files=100, n_rows=200, n_jobs=10).transform(annotations_file=annotations_file_test,
-                                                                             csv_folder=csv_folder)
 
     # return {"all_columns": rows_values, "y": rows_labels, "all_headers": columns_names,
     #         "per_file_labels": file_labels, "per_file_rows": file_columns}
-
 
     pipeline = Pipeline([
         # Extract column info information from csv
@@ -317,7 +338,7 @@ if __name__ == '__main__':
                 # Pipeline for pulling custom features from the columns
                 ('custom_features', Pipeline([
                     ('selector', ItemSelector(key='per_file_rows')),
-                    ('customfeatures', CustomFeatures()),
+                    ('customfeatures', CustomFeatures(n_jobs=5)),
                     ("customvect", DictVectorizer())
                 ])),
 
@@ -328,18 +349,18 @@ if __name__ == '__main__':
                 ])),
 
                 # Pipeline for standard bag-of-words model for header values
-                ('header_features', Pipeline([
-                    ('selector', ItemSelector(key='all_headers')),
-                    ('count', CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False, max_features=2000)),
-                ])),
+                # ('header_features', Pipeline([
+                #     ('selector', ItemSelector(key='all_headers')),
+                #     ('count', CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False, max_features=2000)),
+                # ])),
 
             ],
 
             # weight components in FeatureUnion
             transformer_weights={
                 'column_custom': 1.0,
-                'cell_bow': 0.0,
-                'header_bow': 1.0,
+                'cell_bow': 1.0,
+                # 'header_bow': 1.0,
             },
         )),
 
