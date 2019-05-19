@@ -53,7 +53,7 @@ def extract_id(file_path):
     return resource_id
 
 
-def cols2features(list_files, true_labels, num_rows=10, num_jobs=None):
+def data_extractor(list_files, true_labels, num_rows=10, num_jobs=None):
     if num_jobs and num_jobs > 1:
         features = Parallel(n_jobs=num_jobs)(
             delayed(features_wrap)(file_path, true_labels, num_rows) for file_path in tqdm(list_files))
@@ -83,11 +83,10 @@ def load_annotations_ids(tagged_file_path, num_files=None):
     df_annotation.human_detected = df_annotation.human_detected.fillna("O")
     for i in range(df_annotation.shape[0]):
         dict_ids_labels.setdefault(df_annotation.iloc[i].id, []).append(df_annotation.iloc[i].human_detected)
-    y_true = np.array(list(chain.from_iterable(dict_ids_labels.values())))
     num_annotations_per_resource = df_annotation.groupby("id", sort=False).count()["columns"].to_dict()
     assert (all(True if list(dict_ids_labels.keys())[i] == list(num_annotations_per_resource.keys())[i] else False
                 for i in range(len(num_annotations_per_resource))))
-    return y_true, num_annotations_per_resource, dict_ids_labels
+    return dict_ids_labels
 
 
 def create_list_files(csv_folder, list_resources_ids):
@@ -174,14 +173,14 @@ if __name__ == '__main__':
     num_rows = parser.num_rows
 
     n_cores = int(parser.cores)
-    y_true, resource_ncolumns, dict_ids_labels = load_annotations_ids(tagged_file_path, num_files=num_files)
+    dict_ids_labels = load_annotations_ids(tagged_file_path, num_files=num_files)
 
-    csv_path_list = create_list_files(csv_folder_path, list(resource_ncolumns.keys()))
+    csv_path_list = create_list_files(csv_folder_path, list(dict_ids_labels.keys()))
 
-    list_documents, list_labels, list_columns_names, list_additional_features = cols2features(csv_path_list,
-                                                                                              true_labels=dict_ids_labels,
-                                                                                              num_rows=num_rows,
-                                                                                              num_jobs=n_cores)
+    list_documents, list_labels, list_columns_names, list_additional_features = data_extractor(csv_path_list,
+                                                                                               true_labels=dict_ids_labels,
+                                                                                               num_rows=num_rows,
+                                                                                               num_jobs=n_cores)
 
     X_all, cell_cv, header_cv, extra_dv = create_data_matrix(list_documents, list_columns_names,
                                                              list_additional_features, list_labels)
