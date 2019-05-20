@@ -332,7 +332,9 @@ def train_model2(X, y_true, vectorizers):
     logger.info("Fitting a matrix with shape {0} and sparsity {1}".format(X_train.shape, get_sparsity(X_train)))
     clf.fit(X_train, y_train)
     # print(rfe.ranking_)
-
+    import pickle
+    pickle.dump(clf, open("clf_training", "wb"))
+    pickle.dump([X_train, y_train], open("xytrain", "wb"))
     y_pred = clf.predict(X_test)
 
 
@@ -377,7 +379,7 @@ def create_data_matrix(documents, columns_names, extra_features, labels):
 
     # all_features = cell_cv.get_feature_names() + extra_dv.get_feature_names()
 
-    X_all = hstack([X_extra], format="csr")
+    X_all = hstack([X_cell, X_extra], format="csr")
 
     logger.info("Built a matrix with shape {}".format(X_all.shape))
 

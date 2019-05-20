@@ -13,6 +13,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
 from sklearn.pipeline import Pipeline, FeatureUnion
 from tqdm import tqdm
+from xgboost import XGBClassifier
 
 from csv_detective.detection import detect_encoding, detect_separator, detect_headers, parse_table
 from csv_detective.machine_learning import logger
@@ -322,7 +323,7 @@ class CustomFeatures(BaseEstimator, TransformerMixin):
 if __name__ == '__main__':
     annotations_file = "/media/stuff/Pavel/Documents/Eclipse/workspace/csv_detective/csv_detective/machine_learning/data/columns_annotation.csv"
     csv_folder = "/data/datagouv/csv_top/"
-    train, test = ColumnInfoExtractor(n_files=100, n_rows=200, train_size=.7, n_jobs=5).transform(annotations_file=annotations_file,
+    train, test = ColumnInfoExtractor(n_files=10, n_rows=100, train_size=.7, n_jobs=1).transform(annotations_file=annotations_file,
                                                                               csv_folder=csv_folder)
 
     # return {"all_columns": rows_values, "y": rows_labels, "all_headers": columns_names,
@@ -338,7 +339,7 @@ if __name__ == '__main__':
                 # Pipeline for pulling custom features from the columns
                 ('custom_features', Pipeline([
                     ('selector', ItemSelector(key='per_file_rows')),
-                    ('customfeatures', CustomFeatures(n_jobs=5)),
+                    ('customfeatures', CustomFeatures(n_jobs=1)),
                     ("customvect", DictVectorizer())
                 ])),
 
@@ -362,13 +363,27 @@ if __name__ == '__main__':
                 'cell_bow': 1.0,
                 # 'header_bow': 1.0,
             },
+            verbose=True
         )),
 
         # Use a SVC classifier on the combined features
-        # clf = LogisticRegression(multi_class="ovr", n_jobs=-1, solver="lbfgs")
-        ('LR', LogisticRegression(multi_class="ovr", n_jobs=-1, solver="lbfgs")),
+        # ('LR', LogisticRegression(multi_class="ovr", n_jobs=-1, solver="lbfgs")),
+        ('XG', XGBClassifier(n_jobs=5)),
     ])
-
+    debug = False
     pipeline.fit(train, train["y"])
-    y_pred = pipeline.predict(test)
+    X_train = Pipeline(pipeline.steps[:-1]).transform(train)
+    if debug:
+        X_test = Pipeline(pipeline.steps[:-1]).transform(test)
+
+        import pickle
+        # clf = pickle.load(open("clf_training", "rb"))
+        # y_pred = clf.predict(X_t)
+        X_train2, y_train2 = pickle.load(open("xytrain", "rb"))
+        clf2 = XGBClassifier(n_jobs=5)
+        clf2.fit(X_train2, y_train2)
+        y_pred = clf2.predict(X_test)
+    else:
+        y_pred = pipeline.predict(test)
+
     print(classification_report(test["y"], y_pred=y_pred))
