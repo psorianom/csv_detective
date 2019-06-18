@@ -1,6 +1,6 @@
 import os
 import string
-from collections import defaultdict
+from collections import defaultdict, Counter
 from itertools import chain
 
 import numpy as np
@@ -11,12 +11,18 @@ from sklearn.feature_extraction import DictVectorizer
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report
+from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.pipeline import Pipeline, FeatureUnion
+from sklearn.svm import SVC
 from tqdm import tqdm
 from xgboost import XGBClassifier
+import re
+
+from scipy.sparse import vstack
 
 from csv_detective.detection import detect_encoding, detect_separator, detect_headers, parse_table
 from csv_detective.machine_learning import logger
+from csv_detective.machine_learning.utils import visualize_matrices, visualize_multivariate
 
 
 class ItemSelector(BaseEstimator, TransformerMixin):
@@ -73,6 +79,7 @@ class ColumnInfoExtractor(BaseEstimator, TransformerMixin):
         self.n_jobs = n_jobs
         self.save_dataset = save_dataset
         self.train_size = train_size
+        self._file_idx = {}
 
     def fit(self, X, y=None):
         return self
@@ -142,10 +149,17 @@ class ColumnInfoExtractor(BaseEstimator, TransformerMixin):
                   "(more or less columns found in the annotation file).".format(file_path))
             return
 
-        df_idx = np.arange(len(csv_df))
-        train_idx = np.random.choice(df_idx, size=int(len(df_idx) * self.train_size), replace=False)
+        # df_idx = np.arange(len(csv_df))
+        df_idx = sorted(csv_df.index.values)
+        # train_idx = np.random.choice(df_idx, size=int(len(df_idx) * self.train_size), replace=True)
+        train_idx = df_idx[:int(len(df_idx) * self.train_size)]
         test_idx = np.setdiff1d(df_idx, train_idx)
-        dataset_type = {"train": csv_df.iloc[train_idx], "test": csv_df.iloc[test_idx]}
+        self._file_idx[file_path] = train_idx
+        if len(test_idx):
+            dataset_type = {"train": csv_df.loc[train_idx], "test": csv_df.loc[test_idx]}
+        else:
+            dataset_type = {"train": csv_df.loc[train_idx]}
+
         datasets_info = {}
         for ds_type, df in dataset_type.items():
             file_columns = []
@@ -185,7 +199,7 @@ class ColumnInfoExtractor(BaseEstimator, TransformerMixin):
         for datasets in csv_info:
             if not datasets:
                 continue
-            for ds_type in ["train", "test"]:
+            for ds_type in datasets:
                 for k, v in datasets[ds_type].items():
                     if not v:
                         continue
@@ -197,11 +211,14 @@ class ColumnInfoExtractor(BaseEstimator, TransformerMixin):
                                                self.n_rows), "w") as filo:
                 json.dump(dataset_items, filo)
 
-        return dataset_items["train"], dataset_items["test"]
+        return [dataset_items[k] for k in dataset_items]
 
     def transform(self, annotations_file, csv_folder):
         self._load_annotations_info(annotations_file)
         columns_info = self._extract_columns_selector(csv_folder)
+        if len(columns_info) < 2:
+            return columns_info[0], None
+
         return columns_info
 
 
@@ -230,7 +247,6 @@ class CustomFeatures(BaseEstimator, TransformerMixin):
             features = [self._extract_custom_features(f)
                         for f in tqdm(rows_values)]
 
-        features = [d for d in features if d]
         features = list(chain.from_iterable(features))
         return features
 
@@ -238,55 +254,56 @@ class CustomFeatures(BaseEstimator, TransformerMixin):
         list_features = []
 
         def is_float(x):
-            return x.replace('.', '', 1).isdigit() and "." in x
+            return re.sub(r'[.,]', '', x, 1).isdigit() and len(re.findall(r"[.,]", x)) > 0
+
         for j, rows in enumerate(rows_values):
-            numeric_col = np.array([float(f) for f in rows if f.isdigit()], dtype=float)
+            numeric_col = np.array([float(f.replace(",", ".")) for f in rows if f.isdigit() or is_float(f)], dtype=float)
             for i, value in enumerate(rows):
                 # Add column features if existent
+                features = {}
                 if len(numeric_col):
-                    features = {"num_unique": len(np.unique(numeric_col)),
-                                "col_sum": 1 if sum(numeric_col) < len(numeric_col) else 0}
+                    features["num_unique"] = len(set("".join(rows)))
+                    features["col_sum"] = 1 if sum(numeric_col) < len(numeric_col) else 0
+                    # features["num_unique"] = len(np.unique(numeric_col))
+                    # features["col_sum"] = 1 if sum(numeric_col) < len(numeric_col) else 0
 
-                else:
-                    features = {}
-                #
-                # features = {}
 
                 # if j > 0:
                 #     column_prev = columns[j - 1][:]
-                #     # np.random.shuffle(column_prev)
-                #     features[str(hash("".join(column_prev)) % (10 ** 2))] = 1
+                #     np.random.shuffle(column_prev)
+                    # features[str(hash("".join(column_prev)) % (10 ** 2))] = 1
                 # elif j + 1 < len(columns):
                 #     column_next = columns[j + 1][:]
-                #     # np.random.shuffle(column_next)
-                #     features[str(hash("".join(column_next)) % (10 ** 2))] = 1
-
+                #     np.random.shuffle(column_next)
+                    # features[str(hash("".join(column_next)) % (10 ** 2))] = 1
+                #
                 columns_copy = rows_values[j][:]
                 np.random.shuffle(columns_copy)
 
-                # features[str(hash("".join(columns_copy)) % (10 ** 3))] = 1
+                features[str(hash("".join(columns_copy)) % (10 ** 3))] = 1
 
-                features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
+                # features["is_numeric"] = 1 if value.isnumeric() or is_float(value) else 0
                 # features["single_char"] = 1 if len(value.strip()) == 1 else 0
-                if features["is_numeric"]:
-                    try:
-                        numeric_value = int(value)
-                    except:
-                        numeric_value = float(value)
-
-                    if numeric_value < 0:
-                        features["<0"] = 1
-                    if 0 <= numeric_value < 2:
-                        features[">=0<2"] = 1
-                    elif 2 <= numeric_value < 500:
-                        features[">=2<500"] = 1
-                    elif 500 <= numeric_value < 1000:
-                        features[">=500<1000"] = 1
-                    elif 1000 <= numeric_value < 10000:
-                        features[">=1k<10k"] = 1
-                    elif 10000 <= numeric_value:
-                        features[">=10k<100k"] = 1
-
+                # if features["is_numeric"]:
+                #
+                #     try:
+                #         numeric_value = int(value)
+                #     except:
+                #         numeric_value = float(value.replace(",", "."))
+                #
+                #     if numeric_value < 0:
+                #         features["<0"] = 1
+                #     if 0 <= numeric_value < 2:
+                #         features[">=0<2"] = 1
+                #     elif 2 <= numeric_value < 500:
+                #         features[">=2<500"] = 1
+                #     elif 500 <= numeric_value < 1000:
+                #         features[">=500<1000"] = 1
+                #     elif 1000 <= numeric_value < 10000:
+                #         features[">=1k<10k"] = 1
+                #     elif 10000 <= numeric_value:
+                #         features[">=10k<100k"] = 1
+                #
                 # num lowercase
                 features["num_lower"] = sum(1 for c in value if c.islower())
 
@@ -307,12 +324,14 @@ class CustomFeatures(BaseEstimator, TransformerMixin):
                 features["num_unique_chars"] = len(set(value))
 
                 # num white spaces
-                # features["num_spaces"] = value.count(" ")
+                features["num_spaces"] = value.count(" ")
 
                 # num of special chars
                 features["num_special_chars"] = sum(1 for c in value if c in string.punctuation)
-
+                #
                 list_features.append(features)
+                # print(value, str(features))
+
 
         return list_features
 
@@ -321,10 +340,6 @@ class CustomFeatures(BaseEstimator, TransformerMixin):
 
 
 if __name__ == '__main__':
-    annotations_file = "/media/stuff/Pavel/Documents/Eclipse/workspace/csv_detective/csv_detective/machine_learning/data/columns_annotation.csv"
-    csv_folder = "/data/datagouv/csv_top/"
-    train, test = ColumnInfoExtractor(n_files=10, n_rows=100, train_size=.7, n_jobs=1).transform(annotations_file=annotations_file,
-                                                                              csv_folder=csv_folder)
 
     # return {"all_columns": rows_values, "y": rows_labels, "all_headers": columns_names,
     #         "per_file_labels": file_labels, "per_file_rows": file_columns}
@@ -344,10 +359,10 @@ if __name__ == '__main__':
                 ])),
 
                 # Pipeline for standard bag-of-words model for cell values
-                ('cell_features', Pipeline([
-                    ('selector', ItemSelector(key='all_columns')),
-                    ('count', CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False, max_features=2000)),
-                ])),
+                # ('cell_features', Pipeline([
+                #     ('selector', ItemSelector(key='all_columns')),
+                #     ('count', CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False, max_features=2000)),
+                # ])),
 
                 # Pipeline for standard bag-of-words model for header values
                 # ('header_features', Pipeline([
@@ -358,11 +373,11 @@ if __name__ == '__main__':
             ],
 
             # weight components in FeatureUnion
-            transformer_weights={
-                'column_custom': 1.0,
-                'cell_bow': 1.0,
-                # 'header_bow': 1.0,
-            },
+            # transformer_weights={
+            #     'column_custom': 1.0,
+            #     'cell_bow': 1.0,
+            #     # 'header_bow': 1.0,
+            # },
             verbose=True
         )),
 
@@ -370,9 +385,88 @@ if __name__ == '__main__':
         # ('LR', LogisticRegression(multi_class="ovr", n_jobs=-1, solver="lbfgs")),
         ('XG', XGBClassifier(n_jobs=5)),
     ])
+
+    annotations_file = "./csv_detective/machine_learning/data/columns_annotation.csv"
+    csv_folder = "/data/datagouv/csv_top/"
+
+
+    train, test = ColumnInfoExtractor(n_files=20, n_rows=100, train_size=.7, n_jobs=1).transform(
+        annotations_file=annotations_file,
+        csv_folder=csv_folder)
+
+
     debug = False
-    pipeline.fit(train, train["y"])
-    X_train = Pipeline(pipeline.steps[:-1]).transform(train)
+
+    if test is None: # good performance
+        pipelinem1 = Pipeline(pipeline.steps[:-1])
+        X = pipelinem1.fit_transform(train)
+
+        y_true = np.array(train["y"])
+        print(pipelinem1.named_steps["union"].transformer_list[0][1].named_steps["customvect"].get_feature_names())
+
+        sss = StratifiedShuffleSplit(n_splits=1, train_size=.7, random_state=42)
+        indices = list(sss.split(X, train["y"]))
+        train_indices, test_indices = sorted(indices[0][0]), sorted(indices[0][1])
+        X_train, X_test = X[train_indices], X[test_indices]
+        y_train, y_test = y_true[train_indices], y_true[test_indices]
+
+        visualize_matrices([X_train], names=["X_train"])
+        X2 = vstack([X_train, X_test])
+        visualize_matrices([X2], names=["X2"])
+        # visualize_matrices([X_train, X_test], names=["X_train", "X_test"])
+
+        clf = XGBClassifier(n_jobs=5)
+        # clf = LogisticRegression()
+
+        clf.fit(X_train, y_train)
+        y_pred = clf.predict(X_test)
+        print(classification_report(y_test, y_pred=y_pred))
+
+        exit(0)
+
+    else: # shitty performance
+        pipelinem1 = Pipeline(pipeline.steps[:-1])
+        pepe = Pipeline(pipeline.steps[:-1])
+
+        X_train = pipelinem1.fit_transform(train)
+        # X_test_pp = pepe.fit_transform(test)
+
+        X_test = pipelinem1.transform(test)
+        X_test = X_test[:, range(X_test.shape[1])]
+        sss = StratifiedShuffleSplit(n_splits=1, train_size=.7, random_state=42)
+        y_true = np.array(train["y"])
+
+        indices = list(sss.split(X_train, y_true))
+        train_indices, test_indices = sorted(indices[0][0]), sorted(indices[0][1])
+        X_train2, X_test2 = X_train[train_indices], X_train[test_indices]
+        y_train, y_test = y_true[train_indices], y_true[test_indices]
+
+        # visualize_matrices([X_train], names=["X_train"])
+        # visualize_multivariate(X_train2, y_train)
+        # visualize_distros(X_test2, y_test)
+        # print(pipelinem1.named_steps["union"].transformer_list[0][1].named_steps["customvect"].get_feature_names())
+        # visualize_matrices([X_train, X_test], names=["X_train", "X_test"])
+        clf = XGBClassifier(n_jobs=5)
+        clf2 = XGBClassifier(n_jobs=5)
+
+        clf.fit(X_train2, y_train)
+        clf2.fit(X_train, y_true)
+        y_pred = clf.predict(X_test2)
+        y_pred2 = clf2.predict(X_test)
+        # pipeline.fit(train, train["y"])
+        # y_pred = pipeline.predict(test)
+        # visualize_distros(X_train, train["y"])
+        # visualize_distros(X_test, test["y"])
+
+        print("Good clf with good test")
+        print(classification_report(y_test, y_pred=y_pred))
+        print("Bad clf with bad test")
+        print(classification_report(test["y"], y_pred=y_pred2))
+
+        print("Good clf with bad test")
+        print(classification_report(test["y"], y_pred=clf.predict(X_test)))
+
+
     if debug:
         X_test = Pipeline(pipeline.steps[:-1]).transform(test)
 
@@ -383,7 +477,4 @@ if __name__ == '__main__':
         clf2 = XGBClassifier(n_jobs=5)
         clf2.fit(X_train2, y_train2)
         y_pred = clf2.predict(X_test)
-    else:
-        y_pred = pipeline.predict(test)
 
-    print(classification_report(test["y"], y_pred=y_pred))
