@@ -359,26 +359,26 @@ if __name__ == '__main__':
                 ])),
 
                 # Pipeline for standard bag-of-words model for cell values
-                # ('cell_features', Pipeline([
-                #     ('selector', ItemSelector(key='all_columns')),
-                #     ('count', CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False, max_features=2000)),
-                # ])),
+                ('cell_features', Pipeline([
+                    ('selector', ItemSelector(key='all_columns')),
+                    ('count', CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False, max_features=2000)),
+                ])),
 
                 # Pipeline for standard bag-of-words model for header values
-                # ('header_features', Pipeline([
-                #     ('selector', ItemSelector(key='all_headers')),
-                #     ('count', CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False, max_features=2000)),
-                # ])),
+                ('header_features', Pipeline([
+                    ('selector', ItemSelector(key='all_headers')),
+                    ('count', CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False, max_features=2000)),
+                ])),
 
             ],
 
             # weight components in FeatureUnion
-            # transformer_weights={
-            #     'column_custom': 1.0,
-            #     'cell_bow': 1.0,
-            #     # 'header_bow': 1.0,
-            # },
-            verbose=True
+            transformer_weights={
+                'column_custom': 1.0,
+                'cell_bow': 1.0,
+                'header_bow': .0003,
+            },
+
         )),
 
         # Use a SVC classifier on the combined features
@@ -390,10 +390,9 @@ if __name__ == '__main__':
     csv_folder = "/data/datagouv/csv_top/"
 
 
-    train, test = ColumnInfoExtractor(n_files=20, n_rows=100, train_size=.7, n_jobs=1).transform(
+    train, test = ColumnInfoExtractor(n_files=50, n_rows=50, train_size=.7, n_jobs=10).transform(
         annotations_file=annotations_file,
         csv_folder=csv_folder)
-
 
     debug = False
 

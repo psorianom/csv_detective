@@ -19,12 +19,21 @@ import numpy as np
 import pandas as pd
 from argopt import argopt
 from joblib import Parallel, delayed
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, HashingVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report
+from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.pipeline import Pipeline, FeatureUnion
 from tqdm import tqdm
+from xgboost import XGBClassifier
 
 from csv_detective.detection import detect_encoding, detect_separator, detect_headers, parse_table
+from csv_detective.machine_learning.features import ItemSelector, CustomFeatures, ColumnInfoExtractor
 from csv_detective.machine_learning.training import train_model2, create_data_matrix, features_cell, explain_parameters, \
     explore_features, extra_features
 from csv_detective.machine_learning import logger
+
 
 # logger = logging.getLogger()
 # logger.setLevel(logging.DEBUG)
@@ -122,7 +131,6 @@ def load_file(file_path, num_rows=50):
         print("Could not read {}".format(file_path))
         return
 
-
     return table
 
 
@@ -135,7 +143,7 @@ def extract_features(file_path, true_labels, num_rows=50):
         return None
 
     assert csv_df.shape[1] == len(true_labels), "Annotated number of columns does not match the number of columns in" \
-                                               " file {}".format(file_path)
+                                                " file {}".format(file_path)
 
     csv_columns_flat_list = []
     extended_col_names = []
@@ -145,7 +153,8 @@ def extract_features(file_path, true_labels, num_rows=50):
         csv_columns_flat_list.append(temp_list)
         extended_col_names.extend([csv_df.columns[j].lower()] * len(temp_list))
 
-    assert len(csv_columns_flat_list) == len(true_labels)  # Assert we have the same number of annotated columns and columns
+    assert len(csv_columns_flat_list) == len(
+        true_labels)  # Assert we have the same number of annotated columns and columns
 
     extended_labels = []
     extended_rows = []
@@ -173,18 +182,79 @@ if __name__ == '__main__':
     num_rows = parser.num_rows
 
     n_cores = int(parser.cores)
-    dict_ids_labels = load_annotations_ids(tagged_file_path, num_files=num_files)
+    # dict_ids_labels = load_annotations_ids(tagged_file_path, num_files=num_files)
+    #
+    # csv_path_list = create_list_files(csv_folder_path, list(dict_ids_labels.keys()))
+    #
+    # list_documents, list_labels, list_columns_names, list_additional_features = data_extractor(csv_path_list,
+    #                                                                                            true_labels=dict_ids_labels,
+    #                                                                                            num_rows=num_rows,
+    #                                                                                            num_jobs=n_cores)
+    #
+    # X_all, cell_cv, header_cv, extra_dv = create_data_matrix(list_documents, list_columns_names,
+    #                                                          list_additional_features, list_labels)
+    # clf = train_model2(X_all, list_labels, [extra_dv])
+    # # explore_features("adresse", list_labels, cell_cv, X_all)
+    # # explain_parameters(clf=clf, label_id=3, vectorizers=[cell_cv, extra_dv], features_names=list_labels, n_feats=10)
+    # pass
+    #
+    # # return {"all_columns": rows_values, "y": rows_labels, "all_headers": columns_names,
+    # #         "per_file_labels": file_labels, "per_file_rows": file_columns}
+    #
+    # csv_folder = "/data/datagouv/csv_top/"
+    #
+    # annotations_file = "./csv_detective/machine_learning/data/columns_annotation.csv"
 
-    csv_path_list = create_list_files(csv_folder_path, list(dict_ids_labels.keys()))
+    pipeline = Pipeline([
+        # Extract column info information from csv
 
-    list_documents, list_labels, list_columns_names, list_additional_features = data_extractor(csv_path_list,
-                                                                                               true_labels=dict_ids_labels,
-                                                                                               num_rows=num_rows,
-                                                                                               num_jobs=n_cores)
+        # Use FeatureUnion to combine the features from subject and body
+        ('union', FeatureUnion(
+            transformer_list=[
 
-    X_all, cell_cv, header_cv, extra_dv = create_data_matrix(list_documents, list_columns_names,
-                                                             list_additional_features, list_labels)
-    clf = train_model2(X_all, list_labels, [extra_dv])
-    # explore_features("adresse", list_labels, cell_cv, X_all)
-    # explain_parameters(clf=clf, label_id=3, vectorizers=[cell_cv, extra_dv], features_names=list_labels, n_feats=10)
-    pass
+                # Pipeline for pulling custom features from the columns
+                ('custom_features', Pipeline([
+                    ('selector', ItemSelector(key='per_file_rows')),
+                    ('customfeatures', CustomFeatures(n_jobs=n_cores)),
+                    ("customvect", DictVectorizer())
+                ])),
+
+                # Pipeline for standard bag-of-words model for cell values
+                ('cell_features', Pipeline([
+                    ('selector', ItemSelector(key='all_columns')),
+                    ('count', CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False, max_features=2000)),
+                ])),
+
+                # Pipeline for standard bag-of-words model for header values
+                ('header_features', Pipeline([
+                    ('selector', ItemSelector(key='all_headers')),
+                    # ('count', CountVectorizer(ngram_range=(1, 3), analyzer="char_wb", binary=False, max_features=2000)),
+                    ('hash', HashingVectorizer(n_features=2 ** 2, ngram_range=(1, 3), analyzer="char_wb")),
+
+                ])),
+
+            ],
+
+            # weight components in FeatureUnion
+            # transformer_weights={
+            #     'column_custom': .499,
+            #     'cell_bow': .499,
+            #     'header_bow': 0.02,
+            # },
+
+        )),
+
+        # Use a SVC classifier on the combined features
+        ('LR', LogisticRegression(multi_class="ovr", n_jobs=-1, solver="lbfgs")),
+        # ('XG', XGBClassifier(n_jobs=5)),
+    ])
+
+    train, test = ColumnInfoExtractor(n_files=num_files, n_rows=num_rows, train_size=.7, n_jobs=n_cores).transform(
+        annotations_file=tagged_file_path,
+        csv_folder=csv_folder_path)
+
+    pipeline.fit(train, train["y"])
+    y_test = test["y"]
+    y_pred = pipeline.predict(test)
+
+    print(classification_report(y_test, y_pred=y_pred))
