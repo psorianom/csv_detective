@@ -40,6 +40,7 @@ def detect_encoding(the_file):
 def parse_table(the_file, encoding, sep, headers_row, num_rows, random_state=None):
     # Takes care of some problems
     table = None
+    total_lines = None
     for encoding in [encoding, 'ISO-8859-1', 'utf-8']:
         # TODO : modification systematique
         if encoding is None:
@@ -55,6 +56,7 @@ def parse_table(the_file, encoding, sep, headers_row, num_rows, random_state=Non
                 encoding=encoding
             )
             num_rows = min(num_rows - 1, len(table))
+            total_lines = len(table)
             table = table.sample(num_rows, random_state=random_state)
             break
         except TypeError:
@@ -64,7 +66,7 @@ def parse_table(the_file, encoding, sep, headers_row, num_rows, random_state=Non
         print('  >> encoding not found')
         return table, "NA"
 
-    return table, len(table)
+    return table, total_lines
 
 
 def detect_extra_columns(file, sep):
