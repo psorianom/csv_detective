@@ -104,6 +104,9 @@ def return_all_tests(user_input_tests):
     all_packages.remove('csv_detective')
     all_packages = [x.replace('csv_detective.', '') for x in all_packages]
 
+    if user_input_tests is None:
+        return []
+
     if isinstance(user_input_tests, str):
         assert user_input_tests[0] != '-'
         if user_input_tests == 'ALL':
