@@ -174,6 +174,9 @@ def routine(file_path, num_rows=50, user_input_tests='ALL'):
 
     all_tests = return_all_tests(user_input_tests)
 
+    if not all_tests:
+        return return_dict
+
     # Initialising dict for tests
     test_funcs = dict()
     for test in all_tests:
